@@ -262,6 +262,31 @@ async function sbCall(fn, toastErr) {
   }
 }
 
+// PostgREST caps .select() at ~1000 rows by default. Walk pages with .range()
+// until a short page comes back. `builder` must return a fresh query each call.
+async function fetchAllPaged(builder, toastErr, pageSize = 1000) {
+  const all = [];
+  let from = 0;
+  // Safety cap — 2M rows is well beyond any realistic spacebase and prevents
+  // an infinite loop if the server ever returns full pages indefinitely.
+  const HARD_CAP = 2_000_000;
+  try {
+    while (from < HARD_CAP) {
+      const { data, error } = await builder().range(from, from + pageSize - 1);
+      if (error) throw error;
+      const chunk = data || [];
+      all.push(...chunk);
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+    return all;
+  } catch (e) {
+    console.error(e);
+    if (toastErr) toastErr(e.message || 'Database error');
+    throw e;
+  }
+}
+
 function fmtDate(v) {
   if (!v) return '';
   try {
@@ -566,7 +591,7 @@ export default function Spacebase() {
               .order('position', { ascending: true }),
           toastError
         );
-        const rs = await sbCall(
+        const rs = await fetchAllPaged(
           () =>
             supabase
               .from('spacebase_rows')
@@ -577,12 +602,14 @@ export default function Spacebase() {
         );
         setColumns(cols || []);
         const rowList = rs || [];
-        // Load cells in batches of 500 row ids
+        // Load cells. Batch by 200 row ids — with many columns, one .in() of
+        // 500 rows can exceed the 1000-row response cap and silently truncate.
+        // Paginate each batch with fetchAllPaged so we always get every cell.
         const cellsByRow = new Map();
-        for (let i = 0; i < rowList.length; i += 500) {
-          const batch = rowList.slice(i, i + 500).map((r) => r.id);
+        for (let i = 0; i < rowList.length; i += 200) {
+          const batch = rowList.slice(i, i + 200).map((r) => r.id);
           if (!batch.length) continue;
-          const cells = await sbCall(
+          const cells = await fetchAllPaged(
             () =>
               supabase
                 .from('spacebase_cells')
@@ -631,7 +658,7 @@ export default function Spacebase() {
           toastError
         );
         const primaryColId = cols?.[0]?.id || null;
-        const rs = await sbCall(
+        const rs = await fetchAllPaged(
           () =>
             supabase
               .from('spacebase_rows')
@@ -644,9 +671,9 @@ export default function Spacebase() {
         const rowsById = {};
         rowIds.forEach((id) => (rowsById[id] = ''));
         if (primaryColId && rowIds.length) {
-          for (let i = 0; i < rowIds.length; i += 500) {
-            const batch = rowIds.slice(i, i + 500);
-            const cells = await sbCall(
+          for (let i = 0; i < rowIds.length; i += 1000) {
+            const batch = rowIds.slice(i, i + 1000);
+            const cells = await fetchAllPaged(
               () =>
                 supabase
                   .from('spacebase_cells')

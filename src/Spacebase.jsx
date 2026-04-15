@@ -453,6 +453,44 @@ export default function Spacebase() {
     loadBases();
   }, [loadBases]);
 
+  // ─── HASH ROUTING: #/b/<baseId> ──────────────────────────────────────────
+  // Once bases are loaded, honor the current hash (deep-link / refresh).
+  const hashInitRef = useRef(false);
+  useEffect(() => {
+    if (hashInitRef.current || loadingBases) return;
+    hashInitRef.current = true;
+    const m = window.location.hash.match(/^#\/b\/([^/?#]+)/);
+    const target = m?.[1];
+    if (target && bases.some((b) => b.id === target)) {
+      setActiveBaseId(target);
+    }
+  }, [loadingBases, bases]);
+
+  // Keep the URL in sync with activeBaseId. Use pushState so back/forward work.
+  useEffect(() => {
+    if (loadingBases) return;
+    const desired = activeBaseId ? `#/b/${activeBaseId}` : '';
+    if (window.location.hash === desired) return;
+    const url =
+      window.location.pathname + window.location.search + desired;
+    window.history.pushState({ baseId: activeBaseId }, '', url);
+  }, [activeBaseId, loadingBases]);
+
+  // React to browser back/forward.
+  useEffect(() => {
+    const onPop = () => {
+      const m = window.location.hash.match(/^#\/b\/([^/?#]+)/);
+      const target = m?.[1] || null;
+      setActiveBaseId((cur) => {
+        if (cur === target) return cur;
+        if (target && !bases.some((b) => b.id === target)) return null;
+        return target;
+      });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [bases]);
+
   // ─── LOAD TABLES FOR ACTIVE BASE ─────────────────────────────────────────
   useEffect(() => {
     if (!activeBaseId) {

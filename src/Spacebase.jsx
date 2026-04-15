@@ -273,18 +273,21 @@ async function fetchAllPaged(builder, toastErr, pageSize = 1000) {
   // Safety cap — 2M rows is well beyond any realistic spacebase and prevents
   // an infinite loop if the server ever returns nothing but keeps ack'ing.
   const HARD_CAP = 2_000_000;
+  let pages = 0;
   try {
     while (from < HARD_CAP) {
       const { data, error } = await builder().range(from, from + pageSize - 1);
       if (error) throw error;
       const chunk = data || [];
+      pages++;
+      console.log(
+        `[spacebase paging] page ${pages}: from=${from} got=${chunk.length} total=${all.length + chunk.length}`
+      );
       if (chunk.length === 0) break;
       all.push(...chunk);
       from += chunk.length;
-      // If the server returned fewer than we asked for AND fewer than we've
-      // ever seen, it's likely truly the tail — but don't trust it. Only stop
-      // when an actual empty page confirms end-of-data.
     }
+    console.log(`[spacebase paging] done: ${all.length} rows in ${pages} page(s)`);
     return all;
   } catch (e) {
     console.error(e);

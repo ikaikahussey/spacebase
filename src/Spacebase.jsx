@@ -1542,8 +1542,17 @@ export default function Spacebase() {
               overflowX: 'auto',
             }}
           >
-            {tables.map((t) => {
+            {tables.map((t, i) => {
               const active = t.id === activeTableId;
+              const isFirst = i === 0;
+              const isLast = i === tables.length - 1;
+              // First tab: rounded left. Last tab (not also first): rounded right.
+              // Middle tabs: square. With 2 tables, tab 2 is last-not-first → rounded right.
+              const tabRadius = isFirst
+                ? '18px 4px 4px 18px'
+                : isLast
+                ? '4px 18px 18px 4px'
+                : '4px';
               return (
                 <div
                   key={t.id}
@@ -1561,7 +1570,7 @@ export default function Spacebase() {
                     letterSpacing: 1,
                     cursor: 'pointer',
                     textTransform: 'uppercase',
-                    borderRadius: '18px 4px 4px 18px',
+                    borderRadius: tabRadius,
                     whiteSpace: 'nowrap',
                     display: 'flex',
                     alignItems: 'center',

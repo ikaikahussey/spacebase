@@ -32,6 +32,7 @@ import {
   Undo2,
   Home,
   Edit3,
+  Upload,
 } from 'lucide-react';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
@@ -274,6 +275,84 @@ function fmtDate(v) {
 
 function pillColor(idx) {
   return LCARS_ROTATION[idx % LCARS_ROTATION.length];
+}
+
+// RFC 4180-ish CSV parser. Handles quoted fields, escaped quotes (""),
+// CR/LF/CRLF line endings, and a leading BOM. Returns rows of string arrays.
+function parseCSV(input) {
+  if (input == null) return [];
+  let text = String(input);
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  const rows = [];
+  let cur = [];
+  let field = '';
+  let inQuotes = false;
+  let i = 0;
+  const len = text.length;
+  while (i < len) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i++;
+        continue;
+      }
+      field += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      i++;
+      continue;
+    }
+    if (ch === ',') {
+      cur.push(field);
+      field = '';
+      i++;
+      continue;
+    }
+    if (ch === '\r') {
+      // Handle CRLF and lone CR
+      if (text[i + 1] === '\n') i++;
+      cur.push(field);
+      field = '';
+      rows.push(cur);
+      cur = [];
+      i++;
+      continue;
+    }
+    if (ch === '\n') {
+      cur.push(field);
+      field = '';
+      rows.push(cur);
+      cur = [];
+      i++;
+      continue;
+    }
+    field += ch;
+    i++;
+  }
+  // Flush last field/row if there's pending content
+  if (field.length > 0 || cur.length > 0) {
+    cur.push(field);
+    rows.push(cur);
+  }
+  // Drop a trailing single-empty-field row (artifact of a final newline).
+  // Don't drop rows that are genuinely all-empty-fields — those may be real.
+  if (
+    rows.length &&
+    rows[rows.length - 1].length === 1 &&
+    rows[rows.length - 1][0] === ''
+  ) {
+    rows.pop();
+  }
+  return rows;
 }
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
@@ -973,6 +1052,163 @@ export default function Spacebase() {
     }
   };
 
+  // ─── CSV IMPORT ──────────────────────────────────────────────────────────
+  const fileInputRef = useRef(null);
+  const [importing, setImporting] = useState(false);
+
+  const importCSV = useCallback(
+    async (file) => {
+      if (!file || !activeTableId) return;
+      setImporting(true);
+      try {
+        const text = await file.text();
+        const parsed = parseCSV(text);
+        if (parsed.length < 2) {
+          toastError('CSV needs a header row and at least one data row');
+          return;
+        }
+        const headers = parsed[0].map((h) => (h == null ? '' : String(h).trim()));
+        const dataRows = parsed.slice(1);
+
+        // Map header index -> column id. Case-insensitive name match.
+        const colMap = {};
+        const toCreate = [];
+        let nextPos = columns.length;
+        const seenHeaders = new Set();
+        for (let idx = 0; idx < headers.length; idx++) {
+          const h = headers[idx];
+          if (!h) continue;
+          const key = h.toLowerCase();
+          if (seenHeaders.has(key)) continue; // skip duplicate header columns
+          seenHeaders.add(key);
+          const existing = columns.find(
+            (c) => c.name.toLowerCase() === key
+          );
+          if (existing) {
+            colMap[idx] = existing.id;
+          } else {
+            toCreate.push({
+              idx,
+              insert: {
+                table_id: activeTableId,
+                name: h,
+                type: 'text',
+                position: nextPos++,
+                options: [],
+              },
+            });
+          }
+        }
+
+        let createdCols = [];
+        if (toCreate.length) {
+          createdCols = await sbCall(
+            () =>
+              supabase
+                .from('spacebase_columns')
+                .insert(toCreate.map((c) => c.insert))
+                .select(),
+            toastError
+          );
+          // Match back by name (insert order isn't guaranteed identical)
+          toCreate.forEach((c) => {
+            const match = createdCols.find(
+              (x) => x.name === c.insert.name
+            );
+            if (match) colMap[c.idx] = match.id;
+          });
+        }
+
+        // Insert rows
+        const basePos = rows.length;
+        const rowsToInsert = dataRows.map((_, i) => ({
+          table_id: activeTableId,
+          position: basePos + i,
+        }));
+        const insertedRows = await sbCall(
+          () =>
+            supabase
+              .from('spacebase_rows')
+              .insert(rowsToInsert)
+              .select(),
+          toastError
+        );
+        // DB may reorder — sort by position so our dataRows indices line up
+        const orderedRows = [...(insertedRows || [])].sort(
+          (a, b) => a.position - b.position
+        );
+
+        // Build cell batch
+        const cellBatch = [];
+        orderedRows.forEach((r, i) => {
+          const dataRow = dataRows[i] || [];
+          for (let j = 0; j < dataRow.length; j++) {
+            const cid = colMap[j];
+            if (!cid) continue;
+            const val = dataRow[j];
+            if (val == null || val === '') continue;
+            cellBatch.push({ row_id: r.id, column_id: cid, value: val });
+          }
+        });
+
+        // Flush pending edits first so our batch doesn't race the debounced write
+        try {
+          await flushCells.current?.flush?.();
+        } catch {
+          /* ignore */
+        }
+
+        // Upsert cells in chunks to avoid huge payloads
+        const CHUNK = 1000;
+        for (let i = 0; i < cellBatch.length; i += CHUNK) {
+          const { error: err } = await supabase.rpc('upsert_cells', {
+            cells: cellBatch.slice(i, i + CHUNK),
+          });
+          if (err) throw err;
+        }
+
+        // Update local state
+        if (createdCols.length) {
+          setColumns((cs) =>
+            [...cs, ...createdCols].sort((a, b) => a.position - b.position)
+          );
+        }
+        const newLocalRows = orderedRows.map((r, i) => {
+          const cells = {};
+          const dataRow = dataRows[i] || [];
+          for (let j = 0; j < dataRow.length; j++) {
+            const cid = colMap[j];
+            if (!cid) continue;
+            const val = dataRow[j];
+            if (val == null || val === '') continue;
+            cells[cid] = val;
+          }
+          return { id: r.id, position: r.position, cells };
+        });
+        setRows((rs) =>
+          [...rs, ...newLocalRows].sort((a, b) => a.position - b.position)
+        );
+
+        success(
+          `Imported ${orderedRows.length} row(s)` +
+            (createdCols.length ? `, ${createdCols.length} new col(s)` : '')
+        );
+      } catch (e) {
+        console.error(e);
+        toastError('CSV import failed');
+      } finally {
+        setImporting(false);
+      }
+    },
+    [activeTableId, columns, rows, success, toastError]
+  );
+
+  const onPickCSVFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting same file later
+    if (file) importCSV(file);
+  };
+
   // ─── CELL EDIT ───────────────────────────────────────────────────────────
   const setCellValue = useCallback(
     (rowId, colId, value) => {
@@ -1387,6 +1623,23 @@ export default function Spacebase() {
               <Trash2 size={12} style={{ verticalAlign: -2 }} /> DELETE {selected.size}
             </LButton>
           )}
+          <LButton
+            onClick={() => fileInputRef.current?.click()}
+            color={C.sky}
+            side="left"
+            disabled={importing || !activeTableId}
+            title="Import CSV — first row is headers"
+          >
+            <Upload size={12} style={{ verticalAlign: -2 }} />{' '}
+            {importing ? 'IMPORTING...' : 'IMPORT CSV'}
+          </LButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={onPickCSVFile}
+            style={{ display: 'none' }}
+          />
           <div style={{ flex: 1 }} />
           <div
             style={{

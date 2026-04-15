@@ -262,22 +262,28 @@ async function sbCall(fn, toastErr) {
   }
 }
 
-// PostgREST caps .select() at ~1000 rows by default. Walk pages with .range()
-// until a short page comes back. `builder` must return a fresh query each call.
+// PostgREST enforces a server-side max-rows cap (default ~1000, but can be
+// lower — e.g. 25 on some Supabase projects). We can't trust that a short
+// page means "end of data" because the server may always return short pages.
+// So: keep fetching until we get a truly empty response, advancing by the
+// actual chunk length each time. `builder` must return a fresh query.
 async function fetchAllPaged(builder, toastErr, pageSize = 1000) {
   const all = [];
   let from = 0;
   // Safety cap — 2M rows is well beyond any realistic spacebase and prevents
-  // an infinite loop if the server ever returns full pages indefinitely.
+  // an infinite loop if the server ever returns nothing but keeps ack'ing.
   const HARD_CAP = 2_000_000;
   try {
     while (from < HARD_CAP) {
       const { data, error } = await builder().range(from, from + pageSize - 1);
       if (error) throw error;
       const chunk = data || [];
+      if (chunk.length === 0) break;
       all.push(...chunk);
-      if (chunk.length < pageSize) break;
-      from += pageSize;
+      from += chunk.length;
+      // If the server returned fewer than we asked for AND fewer than we've
+      // ever seen, it's likely truly the tail — but don't trust it. Only stop
+      // when an actual empty page confirms end-of-data.
     }
     return all;
   } catch (e) {

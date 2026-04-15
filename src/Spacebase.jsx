@@ -273,21 +273,15 @@ async function fetchAllPaged(builder, toastErr, pageSize = 1000) {
   // Safety cap — 2M rows is well beyond any realistic spacebase and prevents
   // an infinite loop if the server ever returns nothing but keeps ack'ing.
   const HARD_CAP = 2_000_000;
-  let pages = 0;
   try {
     while (from < HARD_CAP) {
       const { data, error } = await builder().range(from, from + pageSize - 1);
       if (error) throw error;
       const chunk = data || [];
-      pages++;
-      console.log(
-        `[spacebase paging] page ${pages}: from=${from} got=${chunk.length} total=${all.length + chunk.length}`
-      );
       if (chunk.length === 0) break;
       all.push(...chunk);
       from += chunk.length;
     }
-    console.log(`[spacebase paging] done: ${all.length} rows in ${pages} page(s)`);
     return all;
   } catch (e) {
     console.error(e);
@@ -788,7 +782,11 @@ export default function Spacebase() {
   }, [rows, debouncedSearch, activeTable, columns]);
 
   // ─── VIRTUALIZATION ──────────────────────────────────────────────────────
+  // Re-run when loadingTable flips to false — the scroll container only
+  // mounts after loading finishes, so depending on activeTableId alone
+  // misses the measurement and viewportH is stuck at its initial value.
   useEffect(() => {
+    if (loadingTable) return;
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => setScrollTop(el.scrollTop);
@@ -796,11 +794,14 @@ export default function Spacebase() {
     el.addEventListener('scroll', onScroll, { passive: true });
     onResize();
     window.addEventListener('resize', onResize);
+    // Some browsers need a layout tick before clientHeight is accurate.
+    const raf = requestAnimationFrame(onResize);
     return () => {
+      cancelAnimationFrame(raf);
       el.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
     };
-  }, [activeTableId]);
+  }, [activeTableId, loadingTable]);
 
   const totalRows = visibleRows.length;
   const startIdx = Math.max(

@@ -1464,6 +1464,34 @@ export default function Spacebase() {
               {activeBase?.name || 'BASE'}
               <ChevronDown size={14} />
             </div>
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!activeBase) return;
+                const n = prompt('Rename spacebase', activeBase.name);
+                if (n && n.trim() && n.trim() !== activeBase.name) {
+                  renameBase(activeBase.id, n.trim());
+                }
+              }}
+              title="Rename spacebase"
+              style={{
+                position: 'absolute',
+                top: -6,
+                right: -6,
+                background: C.gold,
+                color: C.black,
+                width: 22,
+                height: 22,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                zIndex: 2,
+              }}
+            >
+              <Edit3 size={11} />
+            </div>
             {baseDropdown && (
               <div
                 style={{

@@ -136,6 +136,26 @@ function applyTheme(themeName) {
   LCARS_ROTATION = t.ROTATION;
 }
 
+// ─── LOGO ───────────────────────────────────────────────────────────────────
+// Compact mark: an abstract layered-database icon that works at any size.
+function SpacebaseLogo({ size = 32, color = C.butterscotch }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: 'block', flexShrink: 0 }}
+    >
+      <ellipse cx="32" cy="48" rx="24" ry="8" fill={color} opacity="0.4" />
+      <ellipse cx="32" cy="38" rx="24" ry="8" fill={color} opacity="0.6" />
+      <ellipse cx="32" cy="28" rx="24" ry="8" fill={color} opacity="0.8" />
+      <ellipse cx="32" cy="18" rx="24" ry="8" fill={color} />
+    </svg>
+  );
+}
+
 const ROW_HEIGHT = 36;
 const OVERSCAN = 8;
 const ROW_NUM_W = 56;
@@ -1601,21 +1621,13 @@ export default function Spacebase() {
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Logo — click to return home */}
           <div
             onClick={() => setActiveBaseId(null)}
-            style={{
-              background: C.butterscotch,
-              color: C.black,
-              padding: '12px 24px',
-              fontFamily: FONT_UI,
-              fontSize: 20,
-              letterSpacing: 2,
-              borderRadius: '4px 18px 18px 4px',
-              cursor: 'pointer',
-            }}
             title="Return to base selector"
+            style={{ cursor: 'pointer', marginLeft: 8 }}
           >
-            SPACEBASE
+            <SpacebaseLogo size={36} color={C.butterscotch} />
           </div>
 
           {/* Base title — click the pencil to rename */}
@@ -1631,13 +1643,11 @@ export default function Spacebase() {
             title="Rename spacebase"
             style={{
               marginLeft: 8,
-              background: C.periwinkle,
-              color: C.black,
-              padding: '12px 20px',
+              color: C.text,
+              padding: '8px 4px',
               fontFamily: FONT_UI,
-              fontSize: 13,
-              letterSpacing: 1,
-              borderRadius: 4,
+              fontSize: 20,
+              letterSpacing: 2,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -1646,7 +1656,7 @@ export default function Spacebase() {
             }}
           >
             {activeBase?.name || 'BASE'}
-            <Edit3 size={14} />
+            <Edit3 size={14} style={{ opacity: 0.4 }} />
           </div>
 
           {/* Tabs */}
@@ -2223,16 +2233,23 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
       >
         <div
           style={{
-            background: C.butterscotch,
-            color: C.black,
-            padding: '16px 32px',
-            fontFamily: FONT_UI,
-            fontSize: 28,
-            letterSpacing: 3,
-            borderRadius: '4px 24px 24px 4px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
           }}
         >
-          SPACEBASE
+          <SpacebaseLogo size={44} color={C.butterscotch} />
+          <div
+            style={{
+              color: C.text,
+              fontFamily: FONT_UI,
+              fontSize: 28,
+              letterSpacing: 3,
+              textTransform: 'uppercase',
+            }}
+          >
+            SPACEBASE
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         <LButton onClick={onCreate} color={C.sky} side="round">

@@ -33,6 +33,7 @@ import {
   Home,
   Edit3,
   Upload,
+  Settings,
 } from 'lucide-react';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
@@ -56,32 +57,86 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-// ─── LCARS PALETTE ───────────────────────────────────────────────────────────
-const C = {
-  black: '#000000',
-  cellBg: '#0a0a1a',
-  cellBgEdit: '#0f0f2a',
-  grid: '#1a1a3a',
-  text: '#ffe8d0',
-  butterscotch: '#ff9900',
-  butterscotchDim: '#664400',
-  periwinkle: '#cc99cc',
-  sky: '#99ccff',
-  gold: '#ffcc99',
-  salmon: '#cc6666',
-  lavender: '#9999cc',
+// ─── THEMES ──────────────────────────────────────────────────────────────────
+// Two complete looks: the original LCARS palette/fonts, and a minimal
+// black-and-white Helvetica skin. All downstream code reads `C`, `FONT_UI`,
+// `FONT_DATA`, `LCARS_ROTATION` live — calling applyTheme() swaps them.
+const LCARS_THEME = {
+  name: 'lcars',
+  emoji: '🖖🏽',
+  label: 'LCARS',
+  C: {
+    black: '#000000',
+    cellBg: '#0a0a1a',
+    cellBgEdit: '#0f0f2a',
+    grid: '#1a1a3a',
+    text: '#ffe8d0',
+    butterscotch: '#ff9900',
+    butterscotchDim: '#664400',
+    periwinkle: '#cc99cc',
+    sky: '#99ccff',
+    gold: '#ffcc99',
+    salmon: '#cc6666',
+    lavender: '#9999cc',
+  },
+  FONT_UI: '"Archivo Black", "Antonio", sans-serif',
+  FONT_DATA: '"Antonio", "Chakra Petch", sans-serif',
+  ROTATION: null, // filled in below
 };
-
-const LCARS_ROTATION = [
-  C.butterscotch,
-  C.periwinkle,
-  C.sky,
-  C.gold,
-  C.lavender,
+LCARS_THEME.ROTATION = [
+  LCARS_THEME.C.butterscotch,
+  LCARS_THEME.C.periwinkle,
+  LCARS_THEME.C.sky,
+  LCARS_THEME.C.gold,
+  LCARS_THEME.C.lavender,
 ];
 
-const FONT_UI = '"Archivo Black", "Antonio", sans-serif';
-const FONT_DATA = '"Antonio", "Chakra Petch", sans-serif';
+// Modern: pure black/white/grayscale, Helvetica. `C` is used throughout the
+// app with the convention `{ background: C.<pill>, color: C.black }` — so in
+// modern mode every pill color is a light tint so that `color: C.black`
+// (black) still contrasts. The app shell uses `background: C.black` (still
+// black) with `color: C.text` (white).
+const MODERN_THEME = {
+  name: 'modern',
+  emoji: '🇨🇭',
+  label: 'HELVETICA',
+  C: {
+    black: '#000000',
+    cellBg: '#000000',
+    cellBgEdit: '#111111',
+    grid: '#222222',
+    text: '#ffffff',
+    butterscotch: '#ffffff',
+    butterscotchDim: '#2a2a2a',
+    periwinkle: '#e0e0e0',
+    sky: '#ffffff',
+    gold: '#bbbbbb',
+    salmon: '#888888',
+    lavender: '#999999',
+  },
+  FONT_UI: 'Helvetica, "Helvetica Neue", Arial, sans-serif',
+  FONT_DATA: 'Helvetica, "Helvetica Neue", Arial, sans-serif',
+  ROTATION: ['#ffffff', '#e0e0e0', '#cccccc', '#aaaaaa', '#888888'],
+};
+
+const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME };
+
+// Live bindings. Every `C.foo` / `FONT_UI` / `FONT_DATA` / `LCARS_ROTATION`
+// reference in the file resolves these at call-time, so reassigning them
+// (followed by a re-render) swaps the whole look.
+let C = { ...LCARS_THEME.C };
+let FONT_UI = LCARS_THEME.FONT_UI;
+let FONT_DATA = LCARS_THEME.FONT_DATA;
+let LCARS_ROTATION = LCARS_THEME.ROTATION;
+
+function applyTheme(themeName) {
+  const t = THEMES[themeName] || LCARS_THEME;
+  // Mutate C in place so any code still holding a reference sees new values.
+  Object.assign(C, t.C);
+  FONT_UI = t.FONT_UI;
+  FONT_DATA = t.FONT_DATA;
+  LCARS_ROTATION = t.ROTATION;
+}
 
 const ROW_HEIGHT = 36;
 const OVERSCAN = 8;
@@ -100,6 +155,43 @@ function useGoogleFonts() {
       'https://fonts.googleapis.com/css2?family=Antonio:wght@400;700&family=Archivo+Black&family=Chakra+Petch:wght@400;700&display=swap';
     document.head.appendChild(link);
   }, []);
+}
+
+// ─── THEME CSS OVERRIDES ─────────────────────────────────────────────────────
+// The app is riddled with hardcoded inline border-radius (LCARS pill caps),
+// textTransform: 'uppercase', and letterSpacing. For the Modern / Helvetica
+// skin we strip those via a single !important stylesheet scoped to
+// [data-spacebase-theme="modern"] — flat rectangles, mixed case, Helvetica.
+function useThemeDom(themeName) {
+  useEffect(() => {
+    const id = 'spacebase-theme-css';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = `
+        body[data-spacebase-theme="modern"],
+        body[data-spacebase-theme="modern"] *,
+        body[data-spacebase-theme="modern"] *::before,
+        body[data-spacebase-theme="modern"] *::after {
+          border-radius: 0 !important;
+          text-transform: none !important;
+          letter-spacing: normal !important;
+          font-family: Helvetica, "Helvetica Neue", Arial, sans-serif !important;
+          font-weight: 400 !important;
+        }
+        body[data-spacebase-theme="modern"] input::placeholder {
+          text-transform: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }, []);
+  useEffect(() => {
+    document.body.dataset.spacebaseTheme = themeName;
+    return () => {
+      delete document.body.dataset.spacebaseTheme;
+    };
+  }, [themeName]);
 }
 
 // ─── TOASTS ──────────────────────────────────────────────────────────────────
@@ -386,6 +478,15 @@ function parseCSV(input) {
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 export default function Spacebase() {
   useGoogleFonts();
+
+  // ─── THEME ───────────────────────────────────────────────────────────────
+  // In-memory only (no localStorage — per the app's no-persistence rule).
+  const [themeName, setThemeName] = useState('lcars');
+  // Re-apply on every render so that the live `C` / `FONT_*` / `LCARS_ROTATION`
+  // bindings match the current theme state BEFORE any JSX below is evaluated.
+  applyTheme(themeName);
+  useThemeDom(themeName);
+
   const { toasts, success, error: toastError } = useToasts();
 
   // Global state
@@ -409,6 +510,7 @@ export default function Spacebase() {
   const [editing, setEditing] = useState(null); // {rowId, colId}
   const [colMenu, setColMenu] = useState(null); // columnId
   const [addColOpen, setAddColOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Linked-table cache for `relation` columns:
   //   { [tableId]: { primaryColId, rowsById: { [rowId]: primaryValue } } }
@@ -1671,14 +1773,12 @@ export default function Spacebase() {
             </LButton>
           )}
           <LButton
-            onClick={() => fileInputRef.current?.click()}
-            color={C.sky}
+            onClick={() => setSettingsOpen((v) => !v)}
+            color={C.periwinkle}
             side="left"
-            disabled={importing || !activeTableId}
-            title="Import CSV — first row is headers"
+            title="Settings"
           >
-            <Upload size={12} style={{ verticalAlign: -2 }} />{' '}
-            {importing ? 'IMPORTING...' : 'IMPORT CSV'}
+            <Settings size={12} style={{ verticalAlign: -2 }} /> SETTINGS
           </LButton>
           <input
             ref={fileInputRef}
@@ -1702,6 +1802,159 @@ export default function Spacebase() {
             {visibleRows.length} / {rows.length} ROWS
           </div>
         </div>
+
+        {/* Settings modal */}
+        {settingsOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 500,
+            }}
+            onClick={() => setSettingsOpen(false)}
+          >
+            <div
+              style={{
+                background: C.black,
+                border: `2px solid ${C.butterscotch}`,
+                padding: 24,
+                minWidth: 340,
+                maxWidth: 420,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal header */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: 16,
+                    color: C.butterscotch,
+                    textTransform: 'uppercase',
+                    letterSpacing: 2,
+                  }}
+                >
+                  SETTINGS
+                </div>
+                <div
+                  onClick={() => setSettingsOpen(false)}
+                  style={{ cursor: 'pointer', color: C.text, opacity: 0.7 }}
+                >
+                  <X size={18} />
+                </div>
+              </div>
+
+              {/* Theme section */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: 11,
+                    color: C.text,
+                    textTransform: 'uppercase',
+                    letterSpacing: 1,
+                    opacity: 0.6,
+                  }}
+                >
+                  APPEARANCE
+                </div>
+                <div style={{ display: 'flex', gap: 2 }}>
+                  {[LCARS_THEME, MODERN_THEME].map((theme, i) => {
+                    const active = themeName === theme.name;
+                    const isFirst = i === 0;
+                    const isLast = i === 1;
+                    return (
+                      <div
+                        key={theme.name}
+                        onClick={() => setThemeName(theme.name)}
+                        style={{
+                          background: active
+                            ? C.butterscotch
+                            : C.butterscotchDim,
+                          color: active ? C.black : C.text,
+                          padding: '10px 20px',
+                          fontFamily: FONT_UI,
+                          fontSize: 12,
+                          letterSpacing: 1,
+                          cursor: 'pointer',
+                          textTransform: 'uppercase',
+                          borderRadius: isFirst
+                            ? '18px 4px 4px 18px'
+                            : isLast
+                            ? '4px 18px 18px 4px'
+                            : '4px',
+                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          flex: 1,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 18 }}>{theme.emoji}</span>
+                        {theme.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Import CSV section */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: 11,
+                    color: C.text,
+                    textTransform: 'uppercase',
+                    letterSpacing: 1,
+                    opacity: 0.6,
+                  }}
+                >
+                  DATA
+                </div>
+                <LButton
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setSettingsOpen(false);
+                  }}
+                  color={C.sky}
+                  side="round"
+                  disabled={importing || !activeTableId}
+                  title="Import CSV — first row is headers"
+                >
+                  <Upload size={12} style={{ verticalAlign: -2 }} />{' '}
+                  {importing ? 'IMPORTING...' : 'IMPORT CSV'}
+                </LButton>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Grid */}
         {loadingTable ? (

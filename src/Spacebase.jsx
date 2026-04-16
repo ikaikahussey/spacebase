@@ -56,32 +56,86 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-// ─── LCARS PALETTE ───────────────────────────────────────────────────────────
-const C = {
-  black: '#000000',
-  cellBg: '#0a0a1a',
-  cellBgEdit: '#0f0f2a',
-  grid: '#1a1a3a',
-  text: '#ffe8d0',
-  butterscotch: '#ff9900',
-  butterscotchDim: '#664400',
-  periwinkle: '#cc99cc',
-  sky: '#99ccff',
-  gold: '#ffcc99',
-  salmon: '#cc6666',
-  lavender: '#9999cc',
+// ─── THEMES ──────────────────────────────────────────────────────────────────
+// Two complete looks: the original LCARS palette/fonts, and a minimal
+// black-and-white Helvetica skin. All downstream code reads `C`, `FONT_UI`,
+// `FONT_DATA`, `LCARS_ROTATION` live — calling applyTheme() swaps them.
+const LCARS_THEME = {
+  name: 'lcars',
+  emoji: '🖖🏽',
+  label: 'LCARS',
+  C: {
+    black: '#000000',
+    cellBg: '#0a0a1a',
+    cellBgEdit: '#0f0f2a',
+    grid: '#1a1a3a',
+    text: '#ffe8d0',
+    butterscotch: '#ff9900',
+    butterscotchDim: '#664400',
+    periwinkle: '#cc99cc',
+    sky: '#99ccff',
+    gold: '#ffcc99',
+    salmon: '#cc6666',
+    lavender: '#9999cc',
+  },
+  FONT_UI: '"Archivo Black", "Antonio", sans-serif',
+  FONT_DATA: '"Antonio", "Chakra Petch", sans-serif',
+  ROTATION: null, // filled in below
 };
-
-const LCARS_ROTATION = [
-  C.butterscotch,
-  C.periwinkle,
-  C.sky,
-  C.gold,
-  C.lavender,
+LCARS_THEME.ROTATION = [
+  LCARS_THEME.C.butterscotch,
+  LCARS_THEME.C.periwinkle,
+  LCARS_THEME.C.sky,
+  LCARS_THEME.C.gold,
+  LCARS_THEME.C.lavender,
 ];
 
-const FONT_UI = '"Archivo Black", "Antonio", sans-serif';
-const FONT_DATA = '"Antonio", "Chakra Petch", sans-serif';
+// Modern: pure black/white/grayscale, Helvetica. `C` is used throughout the
+// app with the convention `{ background: C.<pill>, color: C.black }` — so in
+// modern mode every pill color is a light tint so that `color: C.black`
+// (black) still contrasts. The app shell uses `background: C.black` (still
+// black) with `color: C.text` (white).
+const MODERN_THEME = {
+  name: 'modern',
+  emoji: '🇨🇭',
+  label: 'HELVETICA',
+  C: {
+    black: '#000000',
+    cellBg: '#000000',
+    cellBgEdit: '#111111',
+    grid: '#222222',
+    text: '#ffffff',
+    butterscotch: '#ffffff',
+    butterscotchDim: '#2a2a2a',
+    periwinkle: '#e0e0e0',
+    sky: '#ffffff',
+    gold: '#bbbbbb',
+    salmon: '#888888',
+    lavender: '#999999',
+  },
+  FONT_UI: 'Helvetica, "Helvetica Neue", Arial, sans-serif',
+  FONT_DATA: 'Helvetica, "Helvetica Neue", Arial, sans-serif',
+  ROTATION: ['#ffffff', '#e0e0e0', '#cccccc', '#aaaaaa', '#888888'],
+};
+
+const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME };
+
+// Live bindings. Every `C.foo` / `FONT_UI` / `FONT_DATA` / `LCARS_ROTATION`
+// reference in the file resolves these at call-time, so reassigning them
+// (followed by a re-render) swaps the whole look.
+let C = { ...LCARS_THEME.C };
+let FONT_UI = LCARS_THEME.FONT_UI;
+let FONT_DATA = LCARS_THEME.FONT_DATA;
+let LCARS_ROTATION = LCARS_THEME.ROTATION;
+
+function applyTheme(themeName) {
+  const t = THEMES[themeName] || LCARS_THEME;
+  // Mutate C in place so any code still holding a reference sees new values.
+  Object.assign(C, t.C);
+  FONT_UI = t.FONT_UI;
+  FONT_DATA = t.FONT_DATA;
+  LCARS_ROTATION = t.ROTATION;
+}
 
 const ROW_HEIGHT = 36;
 const OVERSCAN = 8;
@@ -100,6 +154,87 @@ function useGoogleFonts() {
       'https://fonts.googleapis.com/css2?family=Antonio:wght@400;700&family=Archivo+Black&family=Chakra+Petch:wght@400;700&display=swap';
     document.head.appendChild(link);
   }, []);
+}
+
+// ─── THEME CSS OVERRIDES ─────────────────────────────────────────────────────
+// The app is riddled with hardcoded inline border-radius (LCARS pill caps),
+// textTransform: 'uppercase', and letterSpacing. For the Modern / Helvetica
+// skin we strip those via a single !important stylesheet scoped to
+// [data-spacebase-theme="modern"] — flat rectangles, mixed case, Helvetica.
+function useThemeDom(themeName) {
+  useEffect(() => {
+    const id = 'spacebase-theme-css';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = `
+        body[data-spacebase-theme="modern"],
+        body[data-spacebase-theme="modern"] *,
+        body[data-spacebase-theme="modern"] *::before,
+        body[data-spacebase-theme="modern"] *::after {
+          border-radius: 0 !important;
+          text-transform: none !important;
+          letter-spacing: normal !important;
+          font-family: Helvetica, "Helvetica Neue", Arial, sans-serif !important;
+          font-weight: 400 !important;
+        }
+        body[data-spacebase-theme="modern"] input::placeholder {
+          text-transform: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }, []);
+  useEffect(() => {
+    document.body.dataset.spacebaseTheme = themeName;
+    return () => {
+      delete document.body.dataset.spacebaseTheme;
+    };
+  }, [themeName]);
+}
+
+// ─── THEME SWITCHER ──────────────────────────────────────────────────────────
+function ThemeSwitcher({ themeName, onChange }) {
+  const btn = (theme) => {
+    const active = themeName === theme.name;
+    return (
+      <div
+        key={theme.name}
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange(theme.name);
+        }}
+        title={`${theme.label} skin`}
+        style={{
+          background: active ? C.butterscotch : C.butterscotchDim,
+          color: active ? C.black : C.text,
+          padding: '8px 12px',
+          fontFamily: FONT_UI,
+          fontSize: 18,
+          lineHeight: 1,
+          cursor: 'pointer',
+          borderRadius:
+            theme.name === 'lcars' ? '18px 4px 4px 18px' : '4px 18px 18px 4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minWidth: 36,
+        }}
+      >
+        {theme.emoji}
+      </div>
+    );
+  };
+  return (
+    <div
+      style={{ display: 'flex', gap: 2 }}
+      onClick={(e) => e.stopPropagation()}
+      title="Toggle app skin"
+    >
+      {btn(LCARS_THEME)}
+      {btn(MODERN_THEME)}
+    </div>
+  );
 }
 
 // ─── TOASTS ──────────────────────────────────────────────────────────────────
@@ -386,6 +521,15 @@ function parseCSV(input) {
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 export default function Spacebase() {
   useGoogleFonts();
+
+  // ─── THEME ───────────────────────────────────────────────────────────────
+  // In-memory only (no localStorage — per the app's no-persistence rule).
+  const [themeName, setThemeName] = useState('lcars');
+  // Re-apply on every render so that the live `C` / `FONT_*` / `LCARS_ROTATION`
+  // bindings match the current theme state BEFORE any JSX below is evaluated.
+  applyTheme(themeName);
+  useThemeDom(themeName);
+
   const { toasts, success, error: toastError } = useToasts();
 
   // Global state
@@ -1423,6 +1567,8 @@ export default function Spacebase() {
         onRename={renameBase}
         onDelete={deleteBase}
         toasts={toasts}
+        themeName={themeName}
+        onChangeTheme={setThemeName}
       />
     );
   }
@@ -1618,6 +1764,11 @@ export default function Spacebase() {
             >
               <Plus size={14} />
             </div>
+          </div>
+
+          {/* Theme switcher */}
+          <div style={{ marginRight: 8 }}>
+            <ThemeSwitcher themeName={themeName} onChange={setThemeName} />
           </div>
 
           {/* Search */}
@@ -1944,7 +2095,16 @@ function FullScreen({ children }) {
   );
 }
 
-function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
+function HomeScreen({
+  bases,
+  onOpen,
+  onCreate,
+  onRename,
+  onDelete,
+  toasts,
+  themeName,
+  onChangeTheme,
+}) {
   useGoogleFonts();
   const [renaming, setRenaming] = useState(null);
   const [renameVal, setRenameVal] = useState('');
@@ -1981,6 +2141,9 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
           SPACEBASE
         </div>
         <div style={{ flex: 1 }} />
+        {onChangeTheme && (
+          <ThemeSwitcher themeName={themeName} onChange={onChangeTheme} />
+        )}
         <LButton onClick={onCreate} color={C.sky} side="round">
           <Plus size={14} style={{ verticalAlign: -2 }} /> NEW SPACEBASE
         </LButton>

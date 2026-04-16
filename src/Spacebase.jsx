@@ -79,6 +79,7 @@ const LCARS_THEME = {
     gold: '#ffcc99',
     salmon: '#cc6666',
     lavender: '#9999cc',
+    onAction: '#000000',  // text color on action (butterscotch/sky) backgrounds
   },
   FONT_UI: '"Archivo Black", "Antonio", sans-serif',
   FONT_DATA: '"Antonio", "Chakra Petch", sans-serif',
@@ -92,7 +93,7 @@ LCARS_THEME.ROTATION = [
   LCARS_THEME.C.lavender,
 ];
 
-// Modern: white, black, red only. Helvetica Bold. No LCARS colors.
+// Modern: black and white only. Helvetica Bold. Red reserved for alerts.
 const MODERN_THEME = {
   name: 'modern',
   emoji: '🇨🇭',
@@ -104,17 +105,18 @@ const MODERN_THEME = {
     cellBgEdit: '#f5f5f5',
     grid: '#e0e0e0',
     text: '#000000',
-    butterscotch: '#ff0000',    // primary action — red
+    butterscotch: '#000000',    // primary action — black
     butterscotchDim: '#f0f0f0', // inactive — near-white
     periwinkle: '#ffffff',      // headers — white
-    sky: '#ff0000',             // search bar / accent — red
+    sky: '#000000',             // search bar / accent — black
     gold: '#f0f0f0',            // badges / counter — near-white
-    salmon: '#ff0000',          // danger — red
+    salmon: '#ff0000',          // danger/alert only — red
     lavender: '#f0f0f0',        // relation pills — near-white
+    onAction: '#ffffff',        // text on action backgrounds — white (contrast)
   },
   FONT_UI: '"Helvetica Neue", Helvetica, Arial, sans-serif',
   FONT_DATA: '"Helvetica Neue", Helvetica, Arial, sans-serif',
-  ROTATION: ['#ff0000', '#ffffff', '#f0f0f0', '#ff0000', '#ffffff'],
+  ROTATION: ['#000000', '#ffffff', '#f0f0f0', '#000000', '#ffffff'],
 };
 
 const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME };
@@ -134,6 +136,14 @@ function applyTheme(themeName) {
   FONT_UI = t.FONT_UI;
   FONT_DATA = t.FONT_DATA;
   LCARS_ROTATION = t.ROTATION;
+}
+
+// Simple luminance-based contrast picker: returns black or white text for a bg.
+function contrastText(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return r * 0.299 + g * 0.587 + b * 0.114 > 150 ? '#000000' : '#ffffff';
 }
 
 // ─── LOGO ───────────────────────────────────────────────────────────────────
@@ -250,7 +260,7 @@ function ToastStack({ toasts }) {
           key={t.id}
           style={{
             background: t.kind === 'error' ? C.salmon : C.sky,
-            color: C.black,
+            color: C.onAction,
             fontFamily: FONT_UI,
             textTransform: 'uppercase',
             padding: '10px 18px 10px 22px',
@@ -293,7 +303,7 @@ function LButton({
       title={title}
       style={{
         background: disabled ? C.butterscotchDim : color,
-        color: C.black,
+        color: C.onAction,
         border: 'none',
         padding: '8px 18px',
         fontFamily: FONT_UI,
@@ -1686,7 +1696,7 @@ export default function Spacebase() {
                   }}
                   style={{
                     background: active ? C.butterscotch : C.butterscotchDim,
-                    color: active ? C.black : C.text,
+                    color: active ? C.onAction : C.text,
                     padding: '10px 20px',
                     fontFamily: FONT_UI,
                     fontSize: 12,
@@ -1718,7 +1728,7 @@ export default function Spacebase() {
               onClick={createTable}
               style={{
                 background: C.sky,
-                color: C.black,
+                color: C.onAction,
                 padding: '10px 14px',
                 fontFamily: FONT_UI,
                 fontSize: 12,
@@ -1744,7 +1754,7 @@ export default function Spacebase() {
               gap: 8,
             }}
           >
-            <Search size={14} color={C.black} />
+            <Search size={14} color={C.onAction} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1753,7 +1763,7 @@ export default function Spacebase() {
                 background: 'transparent',
                 border: 'none',
                 outline: 'none',
-                color: C.black,
+                color: C.onAction,
                 fontFamily: FONT_UI,
                 fontSize: 12,
                 padding: '10px 0',
@@ -1893,7 +1903,7 @@ export default function Spacebase() {
                           background: active
                             ? C.butterscotch
                             : C.butterscotchDim,
-                          color: active ? C.black : C.text,
+                          color: active ? C.onAction : C.text,
                           padding: '10px 20px',
                           fontFamily: FONT_UI,
                           fontSize: 12,
@@ -2039,7 +2049,7 @@ export default function Spacebase() {
                       width: '100%',
                       height: '100%',
                       background: C.butterscotch,
-                      color: C.black,
+                      color: C.onAction,
                       borderRadius: '0 18px 18px 0',
                       display: 'flex',
                       alignItems: 'center',
@@ -2152,7 +2162,7 @@ export default function Spacebase() {
                   minWidth: totalW,
                   height: ROW_HEIGHT,
                   background: C.butterscotch,
-                  color: C.black,
+                  color: C.onAction,
                   borderRadius: '0 0 18px 18px',
                   display: 'flex',
                   alignItems: 'center',
@@ -2283,13 +2293,14 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
       >
         {bases.map((b, i) => {
           const color = pillColor(i);
+          const cardText = contrastText(color);
           return (
             <div
               key={b.id}
               onClick={() => onOpen(b.id)}
               style={{
                 background: color,
-                color: C.black,
+                color: cardText,
                 padding: '24px 28px',
                 borderRadius: '4px 40px 40px 4px',
                 cursor: 'pointer',
@@ -2320,7 +2331,7 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
                       background: 'rgba(0,0,0,0.15)',
                       border: 'none',
                       outline: 'none',
-                      color: C.black,
+                      color: 'inherit',
                       fontFamily: FONT_UI,
                       fontSize: 24,
                       padding: '4px 8px',
@@ -2615,7 +2626,7 @@ function MenuItem({ children, onClick, danger, highlight }) {
       onClick={onClick}
       style={{
         background: danger ? C.salmon : highlight ? C.sky : C.butterscotchDim,
-        color: danger || highlight ? C.black : C.text,
+        color: danger || highlight ? C.onAction : C.text,
         padding: '6px 10px',
         fontFamily: FONT_UI,
         fontSize: 11,
@@ -2773,7 +2784,7 @@ function Cell({
             justifyContent: 'center',
           }}
         >
-          {on && <Check size={12} color={C.black} />}
+          {on && <Check size={12} color={C.onAction} />}
         </div>
       </div>
     );

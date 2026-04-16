@@ -1783,14 +1783,6 @@ export default function Spacebase() {
               <Trash2 size={12} style={{ verticalAlign: -2 }} /> DELETE {selected.size}
             </LButton>
           )}
-          <LButton
-            onClick={() => setSettingsOpen((v) => !v)}
-            color={C.periwinkle}
-            side="left"
-            title="Settings"
-          >
-            <Settings size={12} style={{ verticalAlign: -2 }} /> SETTINGS
-          </LButton>
           <input
             ref={fileInputRef}
             type="file"
@@ -2181,6 +2173,30 @@ export default function Spacebase() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Settings button — fixed bottom-left */}
+      <div
+        onClick={() => setSettingsOpen((v) => !v)}
+        title="Settings"
+        style={{
+          position: 'fixed',
+          left: 16,
+          bottom: 16,
+          background: C.periwinkle,
+          color: C.black,
+          width: 40,
+          height: 40,
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 900,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        }}
+      >
+        <Settings size={18} />
       </div>
 
       <ToastStack toasts={toasts} />

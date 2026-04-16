@@ -208,9 +208,8 @@ function ThemeSwitcher({ themeName, onChange }) {
         style={{
           background: active ? C.butterscotch : C.butterscotchDim,
           color: active ? C.black : C.text,
-          padding: '8px 12px',
-          fontFamily: FONT_UI,
-          fontSize: 18,
+          padding: '10px 14px',
+          fontSize: 22,
           lineHeight: 1,
           cursor: 'pointer',
           borderRadius:
@@ -218,7 +217,9 @@ function ThemeSwitcher({ themeName, onChange }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          minWidth: 36,
+          minWidth: 40,
+          border: active ? 'none' : '1px solid rgba(255,255,255,0.15)',
+          transition: 'background 150ms, border 150ms',
         }}
       >
         {theme.emoji}
@@ -1526,50 +1527,71 @@ export default function Spacebase() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focus, editing, visibleRows, columns]);
 
+  // Floating theme switcher — always visible regardless of which screen we're on.
+  const floatingThemeSwitcher = (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 20,
+        left: 20,
+        zIndex: 9999,
+      }}
+    >
+      <ThemeSwitcher themeName={themeName} onChange={setThemeName} />
+    </div>
+  );
+
   // ─── RENDER: HOME SCREEN ─────────────────────────────────────────────────
   if (loadingBases) {
     return (
-      <FullScreen>
-        <LcarsLoading />
-      </FullScreen>
+      <>
+        <FullScreen>
+          <LcarsLoading />
+        </FullScreen>
+        {floatingThemeSwitcher}
+      </>
     );
   }
 
   if (loadError) {
     return (
-      <FullScreen>
-        <div
-          style={{
-            color: C.text,
-            fontFamily: FONT_DATA,
-            fontSize: 16,
-            textAlign: 'center',
-          }}
-        >
-          <div style={{ marginBottom: 16 }}>DATABASE LINK FAILED</div>
-          <div style={{ marginBottom: 16, fontSize: 12, opacity: 0.7 }}>
-            {loadError}
+      <>
+        <FullScreen>
+          <div
+            style={{
+              color: C.text,
+              fontFamily: FONT_DATA,
+              fontSize: 16,
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ marginBottom: 16 }}>DATABASE LINK FAILED</div>
+            <div style={{ marginBottom: 16, fontSize: 12, opacity: 0.7 }}>
+              {loadError}
+            </div>
+            <LButton onClick={loadBases} color={C.sky} side="round">
+              RETRY
+            </LButton>
           </div>
-          <LButton onClick={loadBases} color={C.sky} side="round">
-            RETRY
-          </LButton>
-        </div>
-      </FullScreen>
+        </FullScreen>
+        {floatingThemeSwitcher}
+      </>
     );
   }
 
   if (!activeBaseId) {
     return (
-      <HomeScreen
-        bases={bases}
-        onOpen={(id) => setActiveBaseId(id)}
-        onCreate={createBase}
-        onRename={renameBase}
-        onDelete={deleteBase}
-        toasts={toasts}
-        themeName={themeName}
-        onChangeTheme={setThemeName}
-      />
+      <>
+        <HomeScreen
+          bases={bases}
+          onOpen={(id) => setActiveBaseId(id)}
+          onCreate={createBase}
+          onRename={renameBase}
+          onDelete={deleteBase}
+          toasts={toasts}
+        />
+        {floatingThemeSwitcher}
+      </>
     );
   }
 
@@ -1764,11 +1786,6 @@ export default function Spacebase() {
             >
               <Plus size={14} />
             </div>
-          </div>
-
-          {/* Theme switcher */}
-          <div style={{ marginRight: 8 }}>
-            <ThemeSwitcher themeName={themeName} onChange={setThemeName} />
           </div>
 
           {/* Search */}
@@ -2071,6 +2088,7 @@ export default function Spacebase() {
       </div>
 
       <ToastStack toasts={toasts} />
+      {floatingThemeSwitcher}
     </div>
   );
 }
@@ -2095,16 +2113,7 @@ function FullScreen({ children }) {
   );
 }
 
-function HomeScreen({
-  bases,
-  onOpen,
-  onCreate,
-  onRename,
-  onDelete,
-  toasts,
-  themeName,
-  onChangeTheme,
-}) {
+function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
   useGoogleFonts();
   const [renaming, setRenaming] = useState(null);
   const [renameVal, setRenameVal] = useState('');
@@ -2141,9 +2150,6 @@ function HomeScreen({
           SPACEBASE
         </div>
         <div style={{ flex: 1 }} />
-        {onChangeTheme && (
-          <ThemeSwitcher themeName={themeName} onChange={onChangeTheme} />
-        )}
         <LButton onClick={onCreate} color={C.sky} side="round">
           <Plus size={14} style={{ verticalAlign: -2 }} /> NEW SPACEBASE
         </LButton>

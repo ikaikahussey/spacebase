@@ -67,6 +67,7 @@ const LCARS_THEME = {
   label: 'LCARS',
   C: {
     black: '#000000',
+    bg: '#000000',
     cellBg: '#0a0a1a',
     cellBgEdit: '#0f0f2a',
     grid: '#1a1a3a',
@@ -91,32 +92,32 @@ LCARS_THEME.ROTATION = [
   LCARS_THEME.C.lavender,
 ];
 
-// Modern: pure black/white/grayscale, Helvetica. `C` is used throughout the
-// app with the convention `{ background: C.<pill>, color: C.black }` — so in
-// modern mode every pill color is a light tint so that `color: C.black`
-// (black) still contrasts. The app shell uses `background: C.black` (still
-// black) with `color: C.text` (white).
+// Modern: white background, black text, Helvetica Bold headers.
+// `C.black` stays #000000 (used for text-on-buttons). Shell backgrounds
+// use `C.black` in the code, which maps to white here via the swap in
+// applyTheme — renamed semantically below.
 const MODERN_THEME = {
   name: 'modern',
   emoji: '🇨🇭',
   label: 'HELVETICA',
   C: {
     black: '#000000',
-    cellBg: '#000000',
-    cellBgEdit: '#111111',
-    grid: '#222222',
-    text: '#ffffff',
-    butterscotch: '#ffffff',
-    butterscotchDim: '#2a2a2a',
-    periwinkle: '#e0e0e0',
-    sky: '#ffffff',
-    gold: '#bbbbbb',
-    salmon: '#888888',
-    lavender: '#999999',
+    bg: '#ffffff',
+    cellBg: '#ffffff',
+    cellBgEdit: '#f5f5f5',
+    grid: '#e0e0e0',
+    text: '#000000',
+    butterscotch: '#ff9900',
+    butterscotchDim: '#f0e6d2',
+    periwinkle: '#cc99cc',
+    sky: '#99ccff',
+    gold: '#ffcc99',
+    salmon: '#cc6666',
+    lavender: '#9999cc',
   },
-  FONT_UI: 'Helvetica, "Helvetica Neue", Arial, sans-serif',
-  FONT_DATA: 'Helvetica, "Helvetica Neue", Arial, sans-serif',
-  ROTATION: ['#ffffff', '#e0e0e0', '#cccccc', '#aaaaaa', '#888888'],
+  FONT_UI: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  FONT_DATA: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  ROTATION: ['#ff9900', '#cc99cc', '#99ccff', '#ffcc99', '#9999cc'],
 };
 
 const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME };
@@ -176,8 +177,8 @@ function useThemeDom(themeName) {
           border-radius: 0 !important;
           text-transform: none !important;
           letter-spacing: normal !important;
-          font-family: Helvetica, "Helvetica Neue", Arial, sans-serif !important;
-          font-weight: 400 !important;
+          font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+          font-weight: bold !important;
         }
         body[data-spacebase-theme="modern"] input::placeholder {
           text-transform: none !important;
@@ -1541,7 +1542,7 @@ export default function Spacebase() {
       style={{
         position: 'fixed',
         inset: 0,
-        background: C.black,
+        background: C.bg,
         display: 'flex',
         color: C.text,
         fontFamily: FONT_DATA,
@@ -1556,7 +1557,7 @@ export default function Spacebase() {
       <div
         style={{
           width: 48,
-          background: C.black,
+          background: C.bg,
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
@@ -1596,7 +1597,7 @@ export default function Spacebase() {
             alignItems: 'center',
             gap: 2,
             padding: '8px 12px 8px 0',
-            background: C.black,
+            background: C.bg,
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1819,7 +1820,7 @@ export default function Spacebase() {
           >
             <div
               style={{
-                background: C.black,
+                background: C.bg,
                 border: `2px solid ${C.butterscotch}`,
                 padding: 24,
                 minWidth: 340,
@@ -1980,7 +1981,7 @@ export default function Spacebase() {
                   top: 0,
                   zIndex: 20,
                   display: 'flex',
-                  background: C.black,
+                  background: C.bg,
                 }}
               >
                 <div
@@ -2185,7 +2186,7 @@ function FullScreen({ children }) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: C.black,
+        background: C.bg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -2206,7 +2207,7 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: C.black,
+        background: C.bg,
         color: C.text,
         fontFamily: FONT_DATA,
         overflow: 'auto',
@@ -2333,7 +2334,7 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
                     setRenaming(b.id);
                   }}
                   style={{
-                    background: C.black,
+                    background: C.bg,
                     color: C.text,
                     padding: '4px 10px',
                     fontFamily: FONT_UI,
@@ -2483,7 +2484,7 @@ function ColumnHeader({
             top: '100%',
             right: 0,
             marginTop: 2,
-            background: C.black,
+            background: C.bg,
             border: `2px solid ${C.periwinkle}`,
             zIndex: 100,
             minWidth: 180,
@@ -2985,7 +2986,7 @@ function AddColumnPopover({ onAdd, onClose, tables = [], currentTableId }) {
         top: '100%',
         right: 0,
         marginTop: 4,
-        background: C.black,
+        background: C.bg,
         border: `2px solid ${C.butterscotch}`,
         padding: 12,
         display: 'flex',

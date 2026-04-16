@@ -33,6 +33,7 @@ import {
   Home,
   Edit3,
   Upload,
+  Settings,
 } from 'lucide-react';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
@@ -191,51 +192,6 @@ function useThemeDom(themeName) {
       delete document.body.dataset.spacebaseTheme;
     };
   }, [themeName]);
-}
-
-// ─── THEME SWITCHER ──────────────────────────────────────────────────────────
-function ThemeSwitcher({ themeName, onChange }) {
-  const btn = (theme) => {
-    const active = themeName === theme.name;
-    return (
-      <div
-        key={theme.name}
-        onClick={(e) => {
-          e.stopPropagation();
-          onChange(theme.name);
-        }}
-        title={`${theme.label} skin`}
-        style={{
-          background: active ? C.butterscotch : C.butterscotchDim,
-          color: active ? C.black : C.text,
-          padding: '10px 14px',
-          fontSize: 22,
-          lineHeight: 1,
-          cursor: 'pointer',
-          borderRadius:
-            theme.name === 'lcars' ? '18px 4px 4px 18px' : '4px 18px 18px 4px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minWidth: 40,
-          border: active ? 'none' : '1px solid rgba(255,255,255,0.15)',
-          transition: 'background 150ms, border 150ms',
-        }}
-      >
-        {theme.emoji}
-      </div>
-    );
-  };
-  return (
-    <div
-      style={{ display: 'flex', gap: 2 }}
-      onClick={(e) => e.stopPropagation()}
-      title="Toggle app skin"
-    >
-      {btn(LCARS_THEME)}
-      {btn(MODERN_THEME)}
-    </div>
-  );
 }
 
 // ─── TOASTS ──────────────────────────────────────────────────────────────────
@@ -554,6 +510,7 @@ export default function Spacebase() {
   const [editing, setEditing] = useState(null); // {rowId, colId}
   const [colMenu, setColMenu] = useState(null); // columnId
   const [addColOpen, setAddColOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Linked-table cache for `relation` columns:
   //   { [tableId]: { primaryColId, rowsById: { [rowId]: primaryValue } } }
@@ -1527,71 +1484,48 @@ export default function Spacebase() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focus, editing, visibleRows, columns]);
 
-  // Floating theme switcher — always visible regardless of which screen we're on.
-  const floatingThemeSwitcher = (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 20,
-        left: 20,
-        zIndex: 9999,
-      }}
-    >
-      <ThemeSwitcher themeName={themeName} onChange={setThemeName} />
-    </div>
-  );
-
   // ─── RENDER: HOME SCREEN ─────────────────────────────────────────────────
   if (loadingBases) {
     return (
-      <>
-        <FullScreen>
-          <LcarsLoading />
-        </FullScreen>
-        {floatingThemeSwitcher}
-      </>
+      <FullScreen>
+        <LcarsLoading />
+      </FullScreen>
     );
   }
 
   if (loadError) {
     return (
-      <>
-        <FullScreen>
-          <div
-            style={{
-              color: C.text,
-              fontFamily: FONT_DATA,
-              fontSize: 16,
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ marginBottom: 16 }}>DATABASE LINK FAILED</div>
-            <div style={{ marginBottom: 16, fontSize: 12, opacity: 0.7 }}>
-              {loadError}
-            </div>
-            <LButton onClick={loadBases} color={C.sky} side="round">
-              RETRY
-            </LButton>
+      <FullScreen>
+        <div
+          style={{
+            color: C.text,
+            fontFamily: FONT_DATA,
+            fontSize: 16,
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ marginBottom: 16 }}>DATABASE LINK FAILED</div>
+          <div style={{ marginBottom: 16, fontSize: 12, opacity: 0.7 }}>
+            {loadError}
           </div>
-        </FullScreen>
-        {floatingThemeSwitcher}
-      </>
+          <LButton onClick={loadBases} color={C.sky} side="round">
+            RETRY
+          </LButton>
+        </div>
+      </FullScreen>
     );
   }
 
   if (!activeBaseId) {
     return (
-      <>
-        <HomeScreen
-          bases={bases}
-          onOpen={(id) => setActiveBaseId(id)}
-          onCreate={createBase}
-          onRename={renameBase}
-          onDelete={deleteBase}
-          toasts={toasts}
-        />
-        {floatingThemeSwitcher}
-      </>
+      <HomeScreen
+        bases={bases}
+        onOpen={(id) => setActiveBaseId(id)}
+        onCreate={createBase}
+        onRename={renameBase}
+        onDelete={deleteBase}
+        toasts={toasts}
+      />
     );
   }
 
@@ -1839,14 +1773,12 @@ export default function Spacebase() {
             </LButton>
           )}
           <LButton
-            onClick={() => fileInputRef.current?.click()}
-            color={C.sky}
+            onClick={() => setSettingsOpen((v) => !v)}
+            color={C.periwinkle}
             side="left"
-            disabled={importing || !activeTableId}
-            title="Import CSV — first row is headers"
+            title="Settings"
           >
-            <Upload size={12} style={{ verticalAlign: -2 }} />{' '}
-            {importing ? 'IMPORTING...' : 'IMPORT CSV'}
+            <Settings size={12} style={{ verticalAlign: -2 }} /> SETTINGS
           </LButton>
           <input
             ref={fileInputRef}
@@ -1870,6 +1802,159 @@ export default function Spacebase() {
             {visibleRows.length} / {rows.length} ROWS
           </div>
         </div>
+
+        {/* Settings modal */}
+        {settingsOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 500,
+            }}
+            onClick={() => setSettingsOpen(false)}
+          >
+            <div
+              style={{
+                background: C.black,
+                border: `2px solid ${C.butterscotch}`,
+                padding: 24,
+                minWidth: 340,
+                maxWidth: 420,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal header */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: 16,
+                    color: C.butterscotch,
+                    textTransform: 'uppercase',
+                    letterSpacing: 2,
+                  }}
+                >
+                  SETTINGS
+                </div>
+                <div
+                  onClick={() => setSettingsOpen(false)}
+                  style={{ cursor: 'pointer', color: C.text, opacity: 0.7 }}
+                >
+                  <X size={18} />
+                </div>
+              </div>
+
+              {/* Theme section */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: 11,
+                    color: C.text,
+                    textTransform: 'uppercase',
+                    letterSpacing: 1,
+                    opacity: 0.6,
+                  }}
+                >
+                  APPEARANCE
+                </div>
+                <div style={{ display: 'flex', gap: 2 }}>
+                  {[LCARS_THEME, MODERN_THEME].map((theme, i) => {
+                    const active = themeName === theme.name;
+                    const isFirst = i === 0;
+                    const isLast = i === 1;
+                    return (
+                      <div
+                        key={theme.name}
+                        onClick={() => setThemeName(theme.name)}
+                        style={{
+                          background: active
+                            ? C.butterscotch
+                            : C.butterscotchDim,
+                          color: active ? C.black : C.text,
+                          padding: '10px 20px',
+                          fontFamily: FONT_UI,
+                          fontSize: 12,
+                          letterSpacing: 1,
+                          cursor: 'pointer',
+                          textTransform: 'uppercase',
+                          borderRadius: isFirst
+                            ? '18px 4px 4px 18px'
+                            : isLast
+                            ? '4px 18px 18px 4px'
+                            : '4px',
+                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          flex: 1,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 18 }}>{theme.emoji}</span>
+                        {theme.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Import CSV section */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: 11,
+                    color: C.text,
+                    textTransform: 'uppercase',
+                    letterSpacing: 1,
+                    opacity: 0.6,
+                  }}
+                >
+                  DATA
+                </div>
+                <LButton
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setSettingsOpen(false);
+                  }}
+                  color={C.sky}
+                  side="round"
+                  disabled={importing || !activeTableId}
+                  title="Import CSV — first row is headers"
+                >
+                  <Upload size={12} style={{ verticalAlign: -2 }} />{' '}
+                  {importing ? 'IMPORTING...' : 'IMPORT CSV'}
+                </LButton>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Grid */}
         {loadingTable ? (
@@ -2088,7 +2173,6 @@ export default function Spacebase() {
       </div>
 
       <ToastStack toasts={toasts} />
-      {floatingThemeSwitcher}
     </div>
   );
 }

@@ -189,8 +189,13 @@ function useThemeDom(themeName) {
   }, []);
   useEffect(() => {
     document.body.dataset.spacebaseTheme = themeName;
+    const t = THEMES[themeName] || LCARS_THEME;
+    document.body.style.backgroundColor = t.C.bg;
+    document.documentElement.style.backgroundColor = t.C.bg;
     return () => {
       delete document.body.dataset.spacebaseTheme;
+      document.body.style.backgroundColor = '';
+      document.documentElement.style.backgroundColor = '';
     };
   }, [themeName]);
 }

@@ -58,8 +58,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
-// Two complete looks: the original LCARS palette/fonts, and a minimal
-// black-and-white Helvetica skin. All downstream code reads `C`, `FONT_UI`,
+// Three complete looks: the original LCARS palette/fonts, a minimal
+// black-and-white Helvetica skin, and a red-on-black night-vision mode. All downstream code reads `C`, `FONT_UI`,
 // `FONT_DATA`, `LCARS_ROTATION` live — calling applyTheme() swaps them.
 const LCARS_THEME = {
   name: 'lcars',
@@ -119,7 +119,33 @@ const MODERN_THEME = {
   ROTATION: ['#000000', '#ffffff', '#f0f0f0', '#000000', '#ffffff'],
 };
 
-const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME };
+// Night Vision: red on black — preserves scotopic adaptation.
+const NIGHTVISION_THEME = {
+  name: 'nightvision',
+  emoji: '🔴',
+  label: 'NIGHT VISION',
+  C: {
+    black: '#000000',
+    bg: '#000000',
+    cellBg: '#0a0000',
+    cellBgEdit: '#140000',
+    grid: '#2a0000',
+    text: '#cc0000',
+    butterscotch: '#990000',    // primary action — dark red
+    butterscotchDim: '#1a0000', // inactive — near-black
+    periwinkle: '#330000',      // headers — very dark red
+    sky: '#660000',             // search bar / accent — mid red
+    gold: '#1a0000',            // badges / counter — near-black
+    salmon: '#ff0000',          // danger/alert — bright red
+    lavender: '#1a0000',        // relation pills — near-black
+    onAction: '#ff0000',        // text on action backgrounds — bright red
+  },
+  FONT_UI: '"Archivo Black", "Antonio", sans-serif',
+  FONT_DATA: '"Antonio", "Chakra Petch", sans-serif',
+  ROTATION: ['#990000', '#660000', '#330000', '#cc0000', '#440000'],
+};
+
+const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME, nightvision: NIGHTVISION_THEME };
 
 // Live bindings. Every `C.foo` / `FONT_UI` / `FONT_DATA` / `LCARS_ROTATION`
 // reference in the file resolves these at call-time, so reassigning them
@@ -1891,10 +1917,10 @@ export default function Spacebase() {
                   APPEARANCE
                 </div>
                 <div style={{ display: 'flex', gap: 2 }}>
-                  {[LCARS_THEME, MODERN_THEME].map((theme, i) => {
+                  {[LCARS_THEME, MODERN_THEME, NIGHTVISION_THEME].map((theme, i, arr) => {
                     const active = themeName === theme.name;
                     const isFirst = i === 0;
-                    const isLast = i === 1;
+                    const isLast = i === arr.length - 1;
                     return (
                       <div
                         key={theme.name}

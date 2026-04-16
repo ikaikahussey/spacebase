@@ -408,7 +408,6 @@ export default function Spacebase() {
   const [focus, setFocus] = useState(null); // {rowId, colId}
   const [editing, setEditing] = useState(null); // {rowId, colId}
   const [colMenu, setColMenu] = useState(null); // columnId
-  const [baseDropdown, setBaseDropdown] = useState(false);
   const [addColOpen, setAddColOpen] = useState(false);
 
   // Linked-table cache for `relation` columns:
@@ -1448,7 +1447,6 @@ export default function Spacebase() {
       }}
       onClick={() => {
         setColMenu(null);
-        setBaseDropdown(false);
         setAddColOpen(false);
       }}
     >
@@ -1517,93 +1515,35 @@ export default function Spacebase() {
             SPACEBASE
           </div>
 
-          {/* Base dropdown */}
-          <div style={{ position: 'relative', marginLeft: 8 }}>
-            <div
-              onClick={() => setBaseDropdown((v) => !v)}
-              style={{
-                background: C.periwinkle,
-                color: C.black,
-                padding: '12px 20px',
-                fontFamily: FONT_UI,
-                fontSize: 13,
-                letterSpacing: 1,
-                borderRadius: 4,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                textTransform: 'uppercase',
-              }}
-            >
-              {activeBase?.name || 'BASE'}
-              <ChevronDown size={14} />
-            </div>
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!activeBase) return;
-                const n = prompt('Rename spacebase', activeBase.name);
-                if (n && n.trim() && n.trim() !== activeBase.name) {
-                  renameBase(activeBase.id, n.trim());
-                }
-              }}
-              title="Rename spacebase"
-              style={{
-                position: 'absolute',
-                top: -6,
-                right: -6,
-                background: C.gold,
-                color: C.black,
-                width: 22,
-                height: 22,
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                zIndex: 2,
-              }}
-            >
-              <Edit3 size={11} />
-            </div>
-            {baseDropdown && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  marginTop: 4,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  zIndex: 500,
-                  minWidth: 220,
-                }}
-              >
-                {bases.map((b, i) => (
-                  <div
-                    key={b.id}
-                    onClick={() => {
-                      setActiveBaseId(b.id);
-                      setBaseDropdown(false);
-                    }}
-                    style={{
-                      background: pillColor(i),
-                      color: C.black,
-                      padding: '10px 16px',
-                      fontFamily: FONT_UI,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      textTransform: 'uppercase',
-                      borderRadius: 3,
-                    }}
-                  >
-                    {b.name}
-                  </div>
-                ))}
-              </div>
-            )}
+          {/* Base title — click the pencil to rename */}
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!activeBase) return;
+              const n = prompt('Rename spacebase', activeBase.name);
+              if (n && n.trim() && n.trim() !== activeBase.name) {
+                renameBase(activeBase.id, n.trim());
+              }
+            }}
+            title="Rename spacebase"
+            style={{
+              marginLeft: 8,
+              background: C.periwinkle,
+              color: C.black,
+              padding: '12px 20px',
+              fontFamily: FONT_UI,
+              fontSize: 13,
+              letterSpacing: 1,
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              textTransform: 'uppercase',
+            }}
+          >
+            {activeBase?.name || 'BASE'}
+            <Edit3 size={14} />
           </div>
 
           {/* Tabs */}
@@ -1620,14 +1560,9 @@ export default function Spacebase() {
             {tables.map((t, i) => {
               const active = t.id === activeTableId;
               const isFirst = i === 0;
-              const isLast = i === tables.length - 1;
-              // First tab: rounded left. Last tab (not also first): rounded right.
-              // Middle tabs: square. With 2 tables, tab 2 is last-not-first → rounded right.
-              const tabRadius = isFirst
-                ? '18px 4px 4px 18px'
-                : isLast
-                ? '4px 18px 18px 4px'
-                : '4px';
+              // First tab keeps the rounded-left pill cap. Everything after
+              // is square — the trailing + button will cap the right side.
+              const tabRadius = isFirst ? '18px 4px 4px 18px' : '4px';
               return (
                 <div
                   key={t.id}
@@ -1675,7 +1610,7 @@ export default function Spacebase() {
                 fontFamily: FONT_UI,
                 fontSize: 12,
                 cursor: 'pointer',
-                borderRadius: 4,
+                borderRadius: '4px 18px 18px 4px',
                 display: 'flex',
                 alignItems: 'center',
               }}

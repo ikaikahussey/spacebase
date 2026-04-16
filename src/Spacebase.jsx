@@ -92,10 +92,7 @@ LCARS_THEME.ROTATION = [
   LCARS_THEME.C.lavender,
 ];
 
-// Modern: white background, black text, Helvetica Bold headers.
-// `C.black` stays #000000 (used for text-on-buttons). Shell backgrounds
-// use `C.black` in the code, which maps to white here via the swap in
-// applyTheme — renamed semantically below.
+// Modern: white, black, red only. Helvetica Bold. No LCARS colors.
 const MODERN_THEME = {
   name: 'modern',
   emoji: '🇨🇭',
@@ -107,17 +104,17 @@ const MODERN_THEME = {
     cellBgEdit: '#f5f5f5',
     grid: '#e0e0e0',
     text: '#000000',
-    butterscotch: '#ff9900',
-    butterscotchDim: '#f0e6d2',
-    periwinkle: '#cc99cc',
-    sky: '#99ccff',
-    gold: '#ffcc99',
-    salmon: '#cc6666',
-    lavender: '#9999cc',
+    butterscotch: '#ff0000',    // primary action — red
+    butterscotchDim: '#f0f0f0', // inactive — near-white
+    periwinkle: '#ffffff',      // headers — white
+    sky: '#ff0000',             // search bar / accent — red
+    gold: '#f0f0f0',            // badges / counter — near-white
+    salmon: '#ff0000',          // danger — red
+    lavender: '#f0f0f0',        // relation pills — near-white
   },
   FONT_UI: '"Helvetica Neue", Helvetica, Arial, sans-serif',
   FONT_DATA: '"Helvetica Neue", Helvetica, Arial, sans-serif',
-  ROTATION: ['#ff9900', '#cc99cc', '#99ccff', '#ffcc99', '#9999cc'],
+  ROTATION: ['#ff0000', '#ffffff', '#f0f0f0', '#ff0000', '#ffffff'],
 };
 
 const THEMES = { lcars: LCARS_THEME, modern: MODERN_THEME };

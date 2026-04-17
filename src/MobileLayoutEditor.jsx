@@ -168,6 +168,51 @@ function Placeholder({ type }) {
 const TITLE_SIZES = { small: 16, medium: 20, large: 24, xlarge: 32 };
 const TEXT_SIZES = { small: 12, medium: 14, large: 16 };
 
+// Navigation stack for both the editor's PLAY mode and the published runtime.
+// Stack entries are { screenId, rowId }. Tapping a collection item pushes;
+// a back button pops; tab-bar taps reset to that tab.
+function useLayoutRuntime(screens, initialScreenId) {
+  const tabScreens = React.useMemo(
+    () => screens.filter((s) => !s.tableId),
+    [screens]
+  );
+  const [stack, setStack] = useState(() => {
+    const byId = new Map(screens.map((s) => [s.id, s]));
+    const seed = byId.get(initialScreenId) || tabScreens[0] || screens[0];
+    return seed ? [{ screenId: seed.id, rowId: seed.previewRowId || null }] : [];
+  });
+  useEffect(() => {
+    if (stack.length === 0 && screens.length > 0) {
+      const seed = tabScreens[0] || screens[0];
+      setStack([{ screenId: seed.id, rowId: seed.previewRowId || null }]);
+    }
+  }, [stack.length, screens, tabScreens]);
+
+  const top = stack[stack.length - 1];
+  const activeScreen = top ? screens.find((s) => s.id === top.screenId) : null;
+  const currentRowId = top?.rowId || activeScreen?.previewRowId || null;
+
+  const navigate = (screenId, rowId) => {
+    if (!screens.some((s) => s.id === screenId)) return;
+    setStack((s) => [...s, { screenId, rowId: rowId || null }]);
+  };
+  const goTab = (screenId) => {
+    if (!screens.some((s) => s.id === screenId)) return;
+    setStack([{ screenId, rowId: null }]);
+  };
+  const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+
+  return {
+    activeScreen,
+    currentRowId,
+    navigate,
+    goTab,
+    back,
+    canBack: stack.length > 1,
+    tabScreens,
+  };
+}
+
 // Resolve the display text for a component that may be bound to a row column.
 // Falls back to the component's literal text/label if no binding or no row.
 function resolveText(c, ctx, fallbackKey = 'text') {
@@ -539,7 +584,7 @@ const COMPONENT_SPECS = {
     category: 'Collection',
     label: 'List',
     icon: 'List',
-    defaultProps: () => ({ tableId: null, labelColumnId: null, limit: 20, emptyText: 'No items' }),
+    defaultProps: () => ({ tableId: null, labelColumnId: null, detailScreenId: null, limit: 20, emptyText: 'No items' }),
     renderPreview: (c, ctx) => {
       const td = c.props.tableId ? ctx?.dataByTable?.[c.props.tableId] : null;
       const labelColId = c.props.labelColumnId || td?.primaryColId;
@@ -564,12 +609,18 @@ const COMPONENT_SPECS = {
           </div>
         );
       }
+      const canTap = !!(c.props.detailScreenId && ctx?.onItemTap);
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {shown.map((r, i) => {
             const label = labelColId ? r.cells?.[labelColId] : '';
             return (
-              <div key={r.id} style={{ background: '#1a1a1a', color: '#ddd', padding: '10px 12px', borderRadius: 4, fontSize: 13, borderLeft: '2px solid #333' }}>
+              <div
+                key={r.id}
+                data-play-interactive={canTap ? 'true' : undefined}
+                onClick={canTap ? (e) => { e.stopPropagation(); ctx.onItemTap(r.id, c.props.detailScreenId); } : undefined}
+                style={{ background: '#1a1a1a', color: '#ddd', padding: '10px 12px', borderRadius: 4, fontSize: 13, borderLeft: '2px solid #333', cursor: canTap ? 'pointer' : 'default' }}
+              >
                 {label || `Row ${i + 1}`}
               </div>
             );
@@ -583,7 +634,7 @@ const COMPONENT_SPECS = {
     category: 'Collection',
     label: 'Cards',
     icon: 'LayoutGrid',
-    defaultProps: () => ({ tableId: null, labelColumnId: null, columns: 2, limit: 12, emptyText: 'No items' }),
+    defaultProps: () => ({ tableId: null, labelColumnId: null, detailScreenId: null, columns: 2, limit: 12, emptyText: 'No items' }),
     renderPreview: (c, ctx) => {
       const td = c.props.tableId ? ctx?.dataByTable?.[c.props.tableId] : null;
       const labelColId = c.props.labelColumnId || td?.primaryColId;
@@ -610,12 +661,18 @@ const COMPONENT_SPECS = {
           </div>
         );
       }
+      const canTap = !!(c.props.detailScreenId && ctx?.onItemTap);
       return (
         <div style={gridStyle}>
           {shown.map((r, i) => {
             const label = labelColId ? r.cells?.[labelColId] : '';
             return (
-              <div key={r.id} style={{ background: '#1a1a1a', color: '#ddd', padding: 12, borderRadius: 6, minHeight: 80, fontSize: 13 }}>
+              <div
+                key={r.id}
+                data-play-interactive={canTap ? 'true' : undefined}
+                onClick={canTap ? (e) => { e.stopPropagation(); ctx.onItemTap(r.id, c.props.detailScreenId); } : undefined}
+                style={{ background: '#1a1a1a', color: '#ddd', padding: 12, borderRadius: 6, minHeight: 80, fontSize: 13, cursor: canTap ? 'pointer' : 'default' }}
+              >
                 {label || `Card ${i + 1}`}
               </div>
             );
@@ -1160,6 +1217,8 @@ function PhoneFrame({ state, setState, dragRef, dataByTable }) {
   const viewportH = useViewportHeight();
   const viewportW = useViewportWidth();
   const [hover, setHover] = useState(false);
+  const playMode = state.mode === 'play';
+  const runtime = useLayoutRuntime(state.screens, state.activeScreenId);
 
   const handleDragOver = (e) => {
     const drag = dragRef.current;
@@ -1195,9 +1254,9 @@ function PhoneFrame({ state, setState, dragRef, dataByTable }) {
       ),
     }));
   };
-  const activeScreen =
-    state.screens.find((s) => s.id === state.activeScreenId) ||
-    state.screens[0];
+  const activeScreen = playMode
+    ? runtime.activeScreen || state.screens[0]
+    : state.screens.find((s) => s.id === state.activeScreenId) || state.screens[0];
   // Cap the frame to the center panel's usable area. Side panels total 600px.
   const availableW = Math.max(280, viewportW - 600 - 64);
   const width = Math.min(state.deviceWidth, availableW);
@@ -1262,10 +1321,17 @@ function PhoneFrame({ state, setState, dragRef, dataByTable }) {
       >
         {(() => {
           const td = activeScreen.tableId ? dataByTable?.[activeScreen.tableId] : null;
-          const row = td && activeScreen.previewRowId
-            ? td.rows.find((r) => r.id === activeScreen.previewRowId)
-            : null;
-          const ctx = { row, columns: td?.columns || [], primaryColId: td?.primaryColId, dataByTable };
+          const rowId = playMode ? runtime.currentRowId : activeScreen.previewRowId;
+          const row = td && rowId ? td.rows.find((r) => r.id === rowId) : null;
+          const ctx = {
+            row,
+            columns: td?.columns || [],
+            primaryColId: td?.primaryColId,
+            dataByTable,
+            onItemTap: playMode
+              ? (rid, screenId) => runtime.navigate(screenId, rid)
+              : null,
+          };
           return activeScreen.components.map((c) => {
           const spec = COMPONENT_SPECS[c.type];
           const node = spec
@@ -1322,18 +1388,38 @@ function PhoneFrame({ state, setState, dragRef, dataByTable }) {
           background: '#0a0a0a',
         }}
       >
-        {state.screens.map((s) => {
-          const active = s.id === state.activeScreenId;
+        {playMode && runtime.canBack && (
+          <button
+            onClick={(e) => { e.stopPropagation(); runtime.back(); }}
+            title="Back"
+            style={{
+              width: 36, height: 36, borderRadius: 18,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: C.salmon, color: C.onAction, border: 'none',
+              cursor: 'pointer', padding: 0, fontSize: 14,
+            }}
+          >
+            ←
+          </button>
+        )}
+        {(playMode ? runtime.tabScreens : state.screens).map((s) => {
+          const active = playMode
+            ? activeScreen?.id === s.id
+            : s.id === state.activeScreenId;
           return (
             <button
               key={s.id}
               onClick={(e) => {
                 e.stopPropagation();
-                setState((st) => ({
-                  ...st,
-                  activeScreenId: s.id,
-                  selectedComponentId: null,
-                }));
+                if (playMode) {
+                  runtime.goTab(s.id);
+                } else {
+                  setState((st) => ({
+                    ...st,
+                    activeScreenId: s.id,
+                    selectedComponentId: null,
+                  }));
+                }
               }}
               title={s.name}
               style={{
@@ -1743,6 +1829,22 @@ const GENERAL_FORMS = {
             </select>
           </Field>
         )}
+        {c.props.tableId && (
+          <Field label="Tap opens screen">
+            <select
+              value={c.props.detailScreenId || ''}
+              onChange={(e) => onChange({ detailScreenId: e.target.value || null })}
+              style={{ ...fieldInputStyle, cursor: 'pointer' }}
+            >
+              <option value="">— None —</option>
+              {(fctx?.state?.screens || [])
+                .filter((s) => s.tableId === c.props.tableId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+            </select>
+          </Field>
+        )}
         <Field label="Max items">
           <NumberField value={c.props.limit} onChange={(v) => onChange({ limit: v })} />
         </Field>
@@ -1781,6 +1883,22 @@ const GENERAL_FORMS = {
               {cols.map((col) => (
                 <option key={col.id} value={col.id}>{col.name}</option>
               ))}
+            </select>
+          </Field>
+        )}
+        {c.props.tableId && (
+          <Field label="Tap opens screen">
+            <select
+              value={c.props.detailScreenId || ''}
+              onChange={(e) => onChange({ detailScreenId: e.target.value || null })}
+              style={{ ...fieldInputStyle, cursor: 'pointer' }}
+            >
+              <option value="">— None —</option>
+              {(fctx?.state?.screens || [])
+                .filter((s) => s.tableId === c.props.tableId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
             </select>
           </Field>
         )}
@@ -2175,7 +2293,7 @@ function PropertiesPanel({ state, setState, tables, dataByTable, dataLoading }) 
         {!playMode && selected && tab === 'general' && (
           <>
             {GENERAL_FORMS[selected.type]
-              ? GENERAL_FORMS[selected.type](selected, updateProps, { tables, dataByTable })
+              ? GENERAL_FORMS[selected.type](selected, updateProps, { tables, dataByTable, state })
               : <NoDesignOptions />}
             {['title', 'text'].includes(selected.type) && (
               <BindColumnField
@@ -2411,13 +2529,9 @@ function pickPersisted(s) {
 // Published runtime renderer — shows a saved layout without editor chrome.
 export function PublishedApp({ layout, dataByTable = {}, baseName, onClose }) {
   useGoogleFonts();
+  usePlayModeStyles();
   const screens = layout?.screens || [];
-  const [activeId, setActiveId] = useState(
-    () => layout?.activeScreenId || screens[0]?.id || null
-  );
-  useEffect(() => {
-    if (!activeId && screens[0]) setActiveId(screens[0].id);
-  }, [activeId, screens]);
+  const runtime = useLayoutRuntime(screens, layout?.activeScreenId);
 
   if (!screens.length) {
     return (
@@ -2427,21 +2541,30 @@ export function PublishedApp({ layout, dataByTable = {}, baseName, onClose }) {
     );
   }
 
-  const screen = screens.find((s) => s.id === activeId) || screens[0];
+  const screen = runtime.activeScreen || screens[0];
   const td = screen.tableId ? dataByTable?.[screen.tableId] : null;
-  const row = td && screen.previewRowId ? td.rows.find((r) => r.id === screen.previewRowId) : null;
-  const ctx = { row, columns: td?.columns || [], primaryColId: td?.primaryColId, dataByTable };
+  const rowId = runtime.currentRowId;
+  const row = td && rowId ? td.rows.find((r) => r.id === rowId) : null;
+  const ctx = {
+    row,
+    columns: td?.columns || [],
+    primaryColId: td?.primaryColId,
+    dataByTable,
+    onItemTap: (rid, screenId) => runtime.navigate(screenId, rid),
+  };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: C.black, color: C.text, display: 'flex', flexDirection: 'column', fontFamily: FONT_DATA }}>
-      {onClose && (
-        <div style={{ flex: '0 0 44px', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12, borderBottom: `1px solid ${C.butterscotchDim}` }}>
-          <button onClick={onClose} title="Exit" style={{ background: C.salmon, color: C.onAction, border: 'none', width: 28, height: 28, borderRadius: 14, cursor: 'pointer', fontSize: 14 }}>←</button>
-          <div style={{ fontFamily: FONT_UI, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: C.butterscotch }}>
-            {baseName || 'APP'}
-          </div>
+      <div style={{ flex: '0 0 44px', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12, borderBottom: `1px solid ${C.butterscotchDim}` }}>
+        {runtime.canBack ? (
+          <button onClick={() => runtime.back()} title="Back" style={{ background: C.butterscotch, color: C.onAction, border: 'none', width: 28, height: 28, borderRadius: 14, cursor: 'pointer', fontSize: 14 }}>←</button>
+        ) : onClose ? (
+          <button onClick={onClose} title="Exit" style={{ background: C.salmon, color: C.onAction, border: 'none', width: 28, height: 28, borderRadius: 14, cursor: 'pointer', fontSize: 14 }}>×</button>
+        ) : null}
+        <div style={{ fontFamily: FONT_UI, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: C.butterscotch }}>
+          {baseName || 'APP'}
         </div>
-      )}
+      </div>
       <div style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center' }}>
         <div style={{ width: '100%', maxWidth: 500, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {screen.components.map((c) => {
@@ -2452,14 +2575,14 @@ export function PublishedApp({ layout, dataByTable = {}, baseName, onClose }) {
           })}
         </div>
       </div>
-      {screens.length > 1 && (
+      {runtime.tabScreens.length > 1 && (
         <div style={{ flex: '0 0 56px', borderTop: `1px solid ${C.butterscotchDim}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#0a0a0a' }}>
-          {screens.map((s) => {
-            const active = s.id === activeId;
+          {runtime.tabScreens.map((s) => {
+            const active = s.id === screen.id;
             return (
               <button
                 key={s.id}
-                onClick={() => setActiveId(s.id)}
+                onClick={() => runtime.goTab(s.id)}
                 title={s.name}
                 style={{ width: 40, height: 40, borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', background: active ? C.butterscotch : 'transparent', color: active ? C.onAction : '#888', border: 'none', cursor: 'pointer' }}
               >

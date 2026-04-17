@@ -2187,11 +2187,36 @@ function ComponentPicker({ state, setState, dragRef }) {
   );
 }
 
-export default function MobileLayoutEditor({ onClose }) {
+const PERSIST_KEYS = ['screens', 'activeScreenId'];
+function pickPersisted(s) {
+  const out = {};
+  for (const k of PERSIST_KEYS) if (s[k] !== undefined) out[k] = s[k];
+  return out;
+}
+
+export default function MobileLayoutEditor({ onClose, initialState, onSave, baseName }) {
   useGoogleFonts();
   usePlayModeStyles();
-  const [state, setState] = useState(INITIAL_STATE);
+  const [state, setState] = useState(() => ({
+    ...INITIAL_STATE,
+    ...(initialState ? pickPersisted(initialState) : {}),
+  }));
   const dragRef = React.useRef(null);
+
+  // Debounced save of persisted keys only.
+  const saveRef = React.useRef(onSave);
+  saveRef.current = onSave;
+  const lastSavedRef = React.useRef(JSON.stringify(pickPersisted(state)));
+  useEffect(() => {
+    if (!saveRef.current) return;
+    const snapshot = JSON.stringify(pickPersisted(state));
+    if (snapshot === lastSavedRef.current) return;
+    const t = setTimeout(() => {
+      lastSavedRef.current = snapshot;
+      saveRef.current(JSON.parse(snapshot));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [state]);
 
   const setMode = (mode) => setState((s) => ({ ...s, mode }));
   const setDeviceWidth = (w) =>
@@ -2252,7 +2277,7 @@ export default function MobileLayoutEditor({ onClose }) {
             whiteSpace: 'nowrap',
           }}
         >
-          LAYOUT EDITOR
+          LAYOUT EDITOR{baseName ? ` · ${baseName}` : ''}
         </div>
         <div style={{ flex: 1 }} />
         <select

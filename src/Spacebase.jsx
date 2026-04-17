@@ -647,8 +647,13 @@ export default function Spacebase() {
   useEffect(() => {
     if (hashInitRef.current || loadingBases) return;
     hashInitRef.current = true;
-    if (window.location.hash === '#/layout') {
-      setLayoutEditorOpen(true);
+    const layoutMatch = window.location.hash.match(/^#\/b\/([^/?#]+)\/layout/);
+    if (layoutMatch) {
+      const id = layoutMatch[1];
+      if (bases.some((b) => b.id === id)) {
+        setActiveBaseId(id);
+        setLayoutEditorOpen(true);
+      }
       return;
     }
     const m = window.location.hash.match(/^#\/b\/([^/?#]+)/);
@@ -672,15 +677,18 @@ export default function Spacebase() {
   // Sync URL when layout editor opens.
   useEffect(() => {
     if (!layoutEditorOpen) return;
-    if (window.location.hash === '#/layout') return;
-    const url = window.location.pathname + window.location.search + '#/layout';
-    window.history.pushState({ layout: true }, '', url);
-  }, [layoutEditorOpen]);
+    const desired = activeBaseId ? `#/b/${activeBaseId}/layout` : '';
+    if (window.location.hash === desired) return;
+    const url = window.location.pathname + window.location.search + desired;
+    window.history.pushState({ layout: true, baseId: activeBaseId }, '', url);
+  }, [layoutEditorOpen, activeBaseId]);
 
   // React to browser back/forward.
   useEffect(() => {
     const onPop = () => {
-      if (window.location.hash === '#/layout') {
+      const layoutMatch = window.location.hash.match(/^#\/b\/([^/?#]+)\/layout/);
+      if (layoutMatch) {
+        setActiveBaseId(layoutMatch[1]);
         setLayoutEditorOpen(true);
         return;
       }
@@ -1033,6 +1041,15 @@ export default function Spacebase() {
       );
     }
   };
+
+  const saveBaseLayout = useCallback(async (id, layout) => {
+    setBases((b) => b.map((x) => (x.id === id ? { ...x, layout } : x)));
+    try {
+      await supabase.from('spacebase_bases').update({ layout }).eq('id', id);
+    } catch (e) {
+      toastError(e?.message || 'Failed to save layout');
+    }
+  }, [toastError]);
 
   const deleteBase = async (id) => {
     const prev = bases.find((b) => b.id === id);
@@ -1593,7 +1610,21 @@ export default function Spacebase() {
     );
   }
 
-  if (layoutEditorOpen) return <MobileLayoutEditor onClose={() => { setLayoutEditorOpen(false); window.history.pushState({}, '', window.location.pathname + window.location.search); }} />;
+  if (layoutEditorOpen && activeBaseId) {
+    const base = bases.find((b) => b.id === activeBaseId);
+    return (
+      <MobileLayoutEditor
+        baseName={base?.name}
+        initialState={base?.layout || null}
+        onSave={(layout) => saveBaseLayout(activeBaseId, layout)}
+        onClose={() => {
+          setLayoutEditorOpen(false);
+          const url = window.location.pathname + window.location.search + `#/b/${activeBaseId}`;
+          window.history.pushState({ baseId: activeBaseId }, '', url);
+        }}
+      />
+    );
+  }
 
   if (!activeBaseId) {
     return (
@@ -1603,7 +1634,6 @@ export default function Spacebase() {
         onCreate={createBase}
         onRename={renameBase}
         onDelete={deleteBase}
-        onOpenLayoutEditor={() => setLayoutEditorOpen(true)}
         toasts={toasts}
       />
     );
@@ -1850,6 +1880,14 @@ export default function Spacebase() {
             style={{ display: 'none' }}
           />
           <div style={{ flex: 1 }} />
+          <LButton
+            onClick={() => setLayoutEditorOpen(true)}
+            color={C.periwinkle}
+            side="left"
+            title="Mobile layout for this spacebase"
+          >
+            LAYOUT
+          </LButton>
           <div
             style={{
               background: C.gold,
@@ -2283,7 +2321,7 @@ function FullScreen({ children }) {
   );
 }
 
-function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, onOpenLayoutEditor, toasts }) {
+function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
   useGoogleFonts();
   const [renaming, setRenaming] = useState(null);
   const [renameVal, setRenameVal] = useState('');
@@ -2329,9 +2367,6 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, onOpenLayoutE
         <div style={{ flex: 1 }} />
         <LButton onClick={onCreate} color={C.sky} side="round">
           <Plus size={14} style={{ verticalAlign: -2 }} /> NEW SPACEBASE
-        </LButton>
-        <LButton onClick={onOpenLayoutEditor} color={C.periwinkle} side="round">
-          LAYOUT EDITOR
         </LButton>
       </div>
 

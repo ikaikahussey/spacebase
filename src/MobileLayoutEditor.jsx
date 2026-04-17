@@ -168,6 +168,17 @@ function Placeholder({ type }) {
 const TITLE_SIZES = { small: 16, medium: 20, large: 24, xlarge: 32 };
 const TEXT_SIZES = { small: 12, medium: 14, large: 16 };
 
+// Resolve the display text for a component that may be bound to a row column.
+// Falls back to the component's literal text/label if no binding or no row.
+function resolveText(c, ctx, fallbackKey = 'text') {
+  const colId = c.props.columnId;
+  if (colId && ctx?.row) {
+    const v = ctx.row.cells?.[colId];
+    if (v !== undefined && v !== null && v !== '') return String(v);
+  }
+  return c.props[fallbackKey] ?? '';
+}
+
 const COMPONENT_SPECS = {
   // Content
   title: {
@@ -175,7 +186,7 @@ const COMPONENT_SPECS = {
     label: 'Title',
     icon: 'Heading',
     defaultProps: () => ({ text: 'Title', align: 'left', size: 'large', color: '#ffffff' }),
-    renderPreview: (c) => (
+    renderPreview: (c, ctx) => (
       <div
         style={{
           fontSize: TITLE_SIZES[c.props.size] || 24,
@@ -185,7 +196,7 @@ const COMPONENT_SPECS = {
           lineHeight: 1.2,
         }}
       >
-        {c.props.text}
+        {resolveText(c, ctx)}
       </div>
     ),
     renderProps: () => null,
@@ -195,7 +206,7 @@ const COMPONENT_SPECS = {
     label: 'Text',
     icon: 'Type',
     defaultProps: () => ({ text: 'Text', align: 'left' }),
-    renderPreview: (c) => (
+    renderPreview: (c, ctx) => (
       <div
         style={{
           fontSize: TEXT_SIZES[c.props.size] || 14,
@@ -204,7 +215,7 @@ const COMPONENT_SPECS = {
           lineHeight: 1.4,
         }}
       >
-        {c.props.text}
+        {resolveText(c, ctx)}
       </div>
     ),
     renderProps: () => null,
@@ -1113,7 +1124,7 @@ function useViewportWidth() {
   return w;
 }
 
-function PhoneFrame({ state, setState, dragRef }) {
+function PhoneFrame({ state, setState, dragRef, dataByTable }) {
   const viewportH = useViewportHeight();
   const viewportW = useViewportWidth();
   const [hover, setHover] = useState(false);
@@ -1217,10 +1228,16 @@ function PhoneFrame({ state, setState, dragRef }) {
           outlineOffset: -4,
         }}
       >
-        {activeScreen.components.map((c) => {
+        {(() => {
+          const td = activeScreen.tableId ? dataByTable?.[activeScreen.tableId] : null;
+          const row = td && activeScreen.previewRowId
+            ? td.rows.find((r) => r.id === activeScreen.previewRowId)
+            : null;
+          const ctx = { row, columns: td?.columns || [], primaryColId: td?.primaryColId };
+          return activeScreen.components.map((c) => {
           const spec = COMPONENT_SPECS[c.type];
           const node = spec
-            ? spec.renderPreview(c)
+            ? spec.renderPreview(c, ctx)
             : <Placeholder type={c.type} />;
           const selected = c.id === state.selectedComponentId;
           const selectMode = state.mode === 'select';
@@ -1257,7 +1274,8 @@ function PhoneFrame({ state, setState, dragRef }) {
               {node}
             </div>
           );
-        })}
+          });
+        })()}
       </div>
       {/* tab bar */}
       <div
@@ -1799,7 +1817,93 @@ function OptionsForm({ c, onChange }) {
   );
 }
 
-function PropertiesPanel({ state, setState }) {
+function ScreenProperties({ state, setState, tables, dataByTable, dataLoading }) {
+  const activeScreen =
+    state.screens.find((s) => s.id === state.activeScreenId) ||
+    state.screens[0];
+  if (!activeScreen) return null;
+
+  const patchScreen = (patch) =>
+    setState((s) => ({
+      ...s,
+      screens: s.screens.map((sc) =>
+        sc.id === activeScreen.id ? { ...sc, ...patch } : sc
+      ),
+    }));
+
+  const td = activeScreen.tableId ? dataByTable?.[activeScreen.tableId] : null;
+  const rowOptions = td
+    ? td.rows.map((r) => ({
+        id: r.id,
+        label:
+          (td.primaryColId && r.cells?.[td.primaryColId]) || `row ${r.id.slice(0, 6)}`,
+      }))
+    : [];
+
+  return (
+    <>
+      <div style={{ marginBottom: 16, fontFamily: FONT_UI, fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', color: C.text, opacity: 0.6 }}>
+        Screen settings
+      </div>
+      <Field label="Detail for table">
+        <select
+          value={activeScreen.tableId || ''}
+          onChange={(e) => {
+            const v = e.target.value || null;
+            patchScreen({ tableId: v, previewRowId: null });
+          }}
+          style={{ ...fieldInputStyle, cursor: 'pointer' }}
+        >
+          <option value="">— None —</option>
+          {tables.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </Field>
+      {activeScreen.tableId && (
+        <Field label="Preview row">
+          {dataLoading && !td ? (
+            <div style={{ color: C.text, opacity: 0.6, fontSize: 12, fontFamily: FONT_DATA }}>Loading…</div>
+          ) : (
+            <select
+              value={activeScreen.previewRowId || ''}
+              onChange={(e) => patchScreen({ previewRowId: e.target.value || null })}
+              style={{ ...fieldInputStyle, cursor: 'pointer' }}
+            >
+              <option value="">— None —</option>
+              {rowOptions.map((r) => (
+                <option key={r.id} value={r.id}>{r.label || '(empty)'}</option>
+              ))}
+            </select>
+          )}
+        </Field>
+      )}
+    </>
+  );
+}
+
+function BindColumnField({ state, c, onChange, dataByTable }) {
+  const screen = state.screens.find((s) => s.id === state.activeScreenId);
+  if (!screen?.tableId) return null;
+  const td = dataByTable?.[screen.tableId];
+  const columns = td?.columns || [];
+  return (
+    <Field label="Bind to column">
+      <select
+        value={c.props.columnId || ''}
+        onChange={(e) => onChange({ columnId: e.target.value || null })}
+        style={{ ...fieldInputStyle, cursor: 'pointer' }}
+      >
+        <option value="">— Not bound —</option>
+        {columns.map((col) => (
+          <option key={col.id} value={col.id}>{col.name}</option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function PropertiesPanel({ state, setState, tables, dataByTable, dataLoading }) {
   const activeScreen =
     state.screens.find((s) => s.id === state.activeScreenId) ||
     state.screens[0];
@@ -1955,23 +2059,28 @@ function PropertiesPanel({ state, setState }) {
           </div>
         )}
         {!playMode && !selected && (
-          <div
-            style={{
-              fontFamily: FONT_UI,
-              fontSize: 11,
-              letterSpacing: 1.5,
-              textTransform: 'uppercase',
-              color: C.text,
-              opacity: 0.6,
-            }}
-          >
-            Select a component to edit.
-          </div>
+          <ScreenProperties
+            state={state}
+            setState={setState}
+            tables={tables}
+            dataByTable={dataByTable}
+            dataLoading={dataLoading}
+          />
         )}
         {!playMode && selected && tab === 'general' && (
-          GENERAL_FORMS[selected.type]
-            ? GENERAL_FORMS[selected.type](selected, updateProps)
-            : <NoDesignOptions />
+          <>
+            {GENERAL_FORMS[selected.type]
+              ? GENERAL_FORMS[selected.type](selected, updateProps)
+              : <NoDesignOptions />}
+            {['title', 'text'].includes(selected.type) && (
+              <BindColumnField
+                state={state}
+                c={selected}
+                onChange={updateProps}
+                dataByTable={dataByTable}
+              />
+            )}
+          </>
         )}
         {!playMode && selected && tab === 'design' && (
           DESIGN_FORMS[selected.type]
@@ -2194,7 +2303,7 @@ function pickPersisted(s) {
   return out;
 }
 
-export default function MobileLayoutEditor({ onClose, initialState, onSave, baseName }) {
+export default function MobileLayoutEditor({ onClose, initialState, onSave, baseName, tables = [], dataByTable = {}, dataLoading = false }) {
   useGoogleFonts();
   usePlayModeStyles();
   const [state, setState] = useState(() => ({
@@ -2371,7 +2480,7 @@ export default function MobileLayoutEditor({ onClose, initialState, onSave, base
               minHeight: 0,
             }}
           >
-            <PhoneFrame state={state} setState={setState} dragRef={dragRef} />
+            <PhoneFrame state={state} setState={setState} dragRef={dragRef} dataByTable={dataByTable} />
           </div>
         </div>
 
@@ -2387,7 +2496,7 @@ export default function MobileLayoutEditor({ onClose, initialState, onSave, base
           }}
         >
           <PanelHeader>PROPERTIES</PanelHeader>
-          <PropertiesPanel state={state} setState={setState} />
+          <PropertiesPanel state={state} setState={setState} tables={tables} dataByTable={dataByTable} dataLoading={dataLoading} />
         </div>
       </div>
       {state.pickerOpen && (

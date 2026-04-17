@@ -571,6 +571,10 @@ export default function Spacebase() {
   const [addColOpen, setAddColOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Layout editor data cache: { [tableId]: { columns, rows, primaryColId } }
+  const [layoutData, setLayoutData] = useState({});
+  const [layoutDataLoading, setLayoutDataLoading] = useState(false);
+
   // Linked-table cache for `relation` columns:
   //   { [tableId]: { primaryColId, rowsById: { [rowId]: primaryValue } } }
   const [linkedData, setLinkedData] = useState({});
@@ -1041,6 +1045,83 @@ export default function Spacebase() {
       );
     }
   };
+
+  // Fetch columns + rows for every table of the active base — used by the
+  // layout editor's per-row binding features. Runs when the editor opens.
+  const fetchAllTableData = useCallback(async (tableList) => {
+    const entries = await Promise.all(
+      tableList.map(async (t) => {
+        try {
+          const cols = await sbCall(
+            () =>
+              supabase
+                .from('spacebase_columns')
+                .select('*')
+                .eq('table_id', t.id)
+                .order('position', { ascending: true }),
+            toastError
+          );
+          const rs = await fetchAllPaged(
+            () =>
+              supabase
+                .from('spacebase_rows')
+                .select('*')
+                .eq('table_id', t.id)
+                .order('position', { ascending: true }),
+            toastError
+          );
+          const rowList = rs || [];
+          const cellsByRow = new Map();
+          for (let i = 0; i < rowList.length; i += 200) {
+            const batch = rowList.slice(i, i + 200).map((r) => r.id);
+            if (!batch.length) continue;
+            const cells = await fetchAllPaged(
+              () =>
+                supabase
+                  .from('spacebase_cells')
+                  .select('*')
+                  .in('row_id', batch),
+              toastError
+            );
+            (cells || []).forEach((c) => {
+              if (!cellsByRow.has(c.row_id)) cellsByRow.set(c.row_id, {});
+              cellsByRow.get(c.row_id)[c.column_id] = c.value;
+            });
+          }
+          return [
+            t.id,
+            {
+              columns: cols || [],
+              primaryColId: (cols || [])[0]?.id || null,
+              rows: rowList.map((r) => ({
+                id: r.id,
+                position: r.position,
+                cells: cellsByRow.get(r.id) || {},
+              })),
+            },
+          ];
+        } catch {
+          return [t.id, { columns: [], primaryColId: null, rows: [] }];
+        }
+      })
+    );
+    return Object.fromEntries(entries);
+  }, [toastError]);
+
+  useEffect(() => {
+    if (!layoutEditorOpen || !activeBaseId) return;
+    let cancelled = false;
+    setLayoutDataLoading(true);
+    fetchAllTableData(tables).then((data) => {
+      if (!cancelled) {
+        setLayoutData(data);
+        setLayoutDataLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutEditorOpen, activeBaseId, tables, fetchAllTableData]);
 
   const saveBaseLayout = useCallback(async (id, layout) => {
     setBases((b) => b.map((x) => (x.id === id ? { ...x, layout } : x)));
@@ -1616,6 +1697,9 @@ export default function Spacebase() {
       <MobileLayoutEditor
         baseName={base?.name}
         initialState={base?.layout || null}
+        tables={tables}
+        dataByTable={layoutData}
+        dataLoading={layoutDataLoading}
         onSave={(layout) => saveBaseLayout(activeBaseId, layout)}
         onClose={() => {
           setLayoutEditorOpen(false);

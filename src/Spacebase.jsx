@@ -534,8 +534,68 @@ function parseCSV(input) {
 }
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+// ─── TRICORDER SOUND FX ──────────────────────────────────────────────────────
+// Synthesized LCARS-ish bleeps via Web Audio. Attached globally to every
+// <button> click; no audio files, no deps.
+let __audioCtx = null;
+function __getAudioCtx() {
+  if (typeof window === 'undefined') return null;
+  if (!__audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    __audioCtx = new AC();
+  }
+  if (__audioCtx.state === 'suspended') __audioCtx.resume().catch(() => {});
+  return __audioCtx;
+}
+function playTricorderBleep() {
+  const ctx = __getAudioCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = Math.random() < 0.35 ? 'square' : 'sine';
+  const f1 = 520 + Math.random() * 1100;
+  const f2 = f1 + (Math.random() * 600 - 200);
+  osc.frequency.setValueAtTime(f1, now);
+  osc.frequency.linearRampToValueAtTime(f2, now + 0.06 + Math.random() * 0.05);
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.06, now + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.15);
+}
+function useTricorderSounds() {
+  useEffect(() => {
+    const onClick = (e) => {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      const btn = t.closest('button');
+      if (btn) {
+        if (btn.disabled) return;
+        playTricorderBleep();
+        return;
+      }
+      // Also fire on non-<button> interactive surfaces (LCARS pills, cards,
+      // tabs) — anything with cursor:pointer and an onclick handler.
+      const clickable = t.closest('[role="button"], a, [data-sound="bleep"]');
+      if (clickable) { playTricorderBleep(); return; }
+      const el = t.closest && t.closest('*');
+      if (el && el !== document.documentElement) {
+        const cs = window.getComputedStyle(el);
+        if (cs && cs.cursor === 'pointer') playTricorderBleep();
+      }
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, []);
+}
+
 export default function Spacebase() {
   useGoogleFonts();
+  useTricorderSounds();
 
   // ─── THEME ───────────────────────────────────────────────────────────────
   // In-memory only (no localStorage — per the app's no-persistence rule).

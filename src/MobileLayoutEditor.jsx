@@ -80,9 +80,36 @@ function loadLeaflet() {
   return leafletPromise;
 }
 
-// Single-flight, rate-limited geocoder backed by Nominatim. In-memory cache
-// keyed by the raw address string. Callers await one coord at a time.
+// Single-flight, rate-limited geocoder backed by Nominatim. Cache is hydrated
+// from localStorage on first load so reloads skip Nominatim entirely for
+// addresses we've already resolved.
+const GEOCODE_CACHE_KEY = 'sb_geocode_v1';
 const geocodeCache = new Map();
+(function hydrateGeocodeCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage?.getItem(GEOCODE_CACHE_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === 'object') {
+      for (const [k, v] of Object.entries(obj)) geocodeCache.set(k, v);
+    }
+  } catch {}
+})();
+let geocodePersistTimer = null;
+function schedulePersistGeocodeCache() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  if (geocodePersistTimer) return;
+  geocodePersistTimer = setTimeout(() => {
+    geocodePersistTimer = null;
+    try {
+      const obj = {};
+      for (const [k, v] of geocodeCache.entries()) obj[k] = v;
+      window.localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(obj));
+    } catch {}
+  }, 500);
+}
+
 let geocodeChain = Promise.resolve();
 function geocodeAddress(address) {
   const key = (address || '').trim();
@@ -99,11 +126,13 @@ function geocodeAddress(address) {
       const hit = Array.isArray(json) && json[0];
       const coord = hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
       geocodeCache.set(key, coord);
+      schedulePersistGeocodeCache();
       // Nominatim asks for max 1 req/sec.
       await new Promise((r) => setTimeout(r, 1100));
       return coord;
     } catch {
       geocodeCache.set(key, null);
+      schedulePersistGeocodeCache();
       return null;
     }
   });

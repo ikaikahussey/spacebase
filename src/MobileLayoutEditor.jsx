@@ -539,58 +539,90 @@ const COMPONENT_SPECS = {
     category: 'Collection',
     label: 'List',
     icon: 'List',
-    defaultProps: () => ({ source: '', itemLabel: 'Item', emptyText: 'No items' }),
-    renderPreview: () => (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            style={{
-              background: '#1a1a1a',
-              color: '#ddd',
-              padding: '10px 12px',
-              borderRadius: 4,
-              fontSize: 13,
-              borderLeft: '2px solid #333',
-            }}
-          >
-            Item {i + 1}
+    defaultProps: () => ({ tableId: null, labelColumnId: null, limit: 20, emptyText: 'No items' }),
+    renderPreview: (c, ctx) => {
+      const td = c.props.tableId ? ctx?.dataByTable?.[c.props.tableId] : null;
+      const labelColId = c.props.labelColumnId || td?.primaryColId;
+      const rows = td?.rows || [];
+      const limit = Math.max(1, c.props.limit || 20);
+      const shown = rows.slice(0, limit);
+      if (!c.props.tableId) {
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} style={{ background: '#1a1a1a', color: '#888', padding: '10px 12px', borderRadius: 4, fontSize: 13, borderLeft: '2px solid #333', fontStyle: 'italic' }}>
+                (pick a table)
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    ),
+        );
+      }
+      if (!shown.length) {
+        return (
+          <div style={{ background: '#1a1a1a', color: '#888', padding: '10px 12px', borderRadius: 4, fontSize: 13, fontStyle: 'italic' }}>
+            {c.props.emptyText || 'No items'}
+          </div>
+        );
+      }
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {shown.map((r, i) => {
+            const label = labelColId ? r.cells?.[labelColId] : '';
+            return (
+              <div key={r.id} style={{ background: '#1a1a1a', color: '#ddd', padding: '10px 12px', borderRadius: 4, fontSize: 13, borderLeft: '2px solid #333' }}>
+                {label || `Row ${i + 1}`}
+              </div>
+            );
+          })}
+        </div>
+      );
+    },
     renderProps: () => null,
   },
   cards: {
     category: 'Collection',
     label: 'Cards',
     icon: 'LayoutGrid',
-    defaultProps: () => ({ source: '', columns: 2, emptyText: 'No items' }),
-    renderPreview: () => (
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 8,
-        }}
-      >
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            style={{
-              background: '#1a1a1a',
-              color: '#ddd',
-              padding: 12,
-              borderRadius: 6,
-              minHeight: 80,
-              fontSize: 13,
-            }}
-          >
-            Card {i + 1}
+    defaultProps: () => ({ tableId: null, labelColumnId: null, columns: 2, limit: 12, emptyText: 'No items' }),
+    renderPreview: (c, ctx) => {
+      const td = c.props.tableId ? ctx?.dataByTable?.[c.props.tableId] : null;
+      const labelColId = c.props.labelColumnId || td?.primaryColId;
+      const rows = td?.rows || [];
+      const cols = Math.max(1, Math.min(4, c.props.columns || 2));
+      const limit = Math.max(1, c.props.limit || 12);
+      const shown = rows.slice(0, limit);
+      const gridStyle = { display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 8 };
+      if (!c.props.tableId) {
+        return (
+          <div style={gridStyle}>
+            {[0, 1].map((i) => (
+              <div key={i} style={{ background: '#1a1a1a', color: '#888', padding: 12, borderRadius: 6, minHeight: 80, fontSize: 13, fontStyle: 'italic' }}>
+                (pick a table)
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    ),
+        );
+      }
+      if (!shown.length) {
+        return (
+          <div style={{ background: '#1a1a1a', color: '#888', padding: 12, borderRadius: 6, fontSize: 13, fontStyle: 'italic' }}>
+            {c.props.emptyText || 'No items'}
+          </div>
+        );
+      }
+      return (
+        <div style={gridStyle}>
+          {shown.map((r, i) => {
+            const label = labelColId ? r.cells?.[labelColId] : '';
+            return (
+              <div key={r.id} style={{ background: '#1a1a1a', color: '#ddd', padding: 12, borderRadius: 6, minHeight: 80, fontSize: 13 }}>
+                {label || `Card ${i + 1}`}
+              </div>
+            );
+          })}
+        </div>
+      );
+    },
     renderProps: () => null,
   },
   // Layout
@@ -1233,7 +1265,7 @@ function PhoneFrame({ state, setState, dragRef, dataByTable }) {
           const row = td && activeScreen.previewRowId
             ? td.rows.find((r) => r.id === activeScreen.previewRowId)
             : null;
-          const ctx = { row, columns: td?.columns || [], primaryColId: td?.primaryColId };
+          const ctx = { row, columns: td?.columns || [], primaryColId: td?.primaryColId, dataByTable };
           return activeScreen.components.map((c) => {
           const spec = COMPONENT_SPECS[c.type];
           const node = spec
@@ -1679,22 +1711,95 @@ const GENERAL_FORMS = {
       <TextField value={c.props.text} onChange={(v) => onChange({ text: v })} />
     </Field>
   ),
-  list: (c, onChange) => (
-    <Field label="Empty text">
-      <TextField
-        value={c.props.emptyText}
-        onChange={(v) => onChange({ emptyText: v })}
-      />
-    </Field>
-  ),
-  cards: (c, onChange) => (
-    <Field label="Empty text">
-      <TextField
-        value={c.props.emptyText}
-        onChange={(v) => onChange({ emptyText: v })}
-      />
-    </Field>
-  ),
+  list: (c, onChange, fctx) => {
+    const tables = fctx?.tables || [];
+    const td = c.props.tableId ? fctx?.dataByTable?.[c.props.tableId] : null;
+    const cols = td?.columns || [];
+    return (
+      <>
+        <Field label="Table">
+          <select
+            value={c.props.tableId || ''}
+            onChange={(e) => onChange({ tableId: e.target.value || null, labelColumnId: null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— None —</option>
+            {tables.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </Field>
+        {c.props.tableId && (
+          <Field label="Label column">
+            <select
+              value={c.props.labelColumnId || ''}
+              onChange={(e) => onChange({ labelColumnId: e.target.value || null })}
+              style={{ ...fieldInputStyle, cursor: 'pointer' }}
+            >
+              <option value="">— Primary —</option>
+              {cols.map((col) => (
+                <option key={col.id} value={col.id}>{col.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field label="Max items">
+          <NumberField value={c.props.limit} onChange={(v) => onChange({ limit: v })} />
+        </Field>
+        <Field label="Empty text">
+          <TextField value={c.props.emptyText} onChange={(v) => onChange({ emptyText: v })} />
+        </Field>
+      </>
+    );
+  },
+  cards: (c, onChange, fctx) => {
+    const tables = fctx?.tables || [];
+    const td = c.props.tableId ? fctx?.dataByTable?.[c.props.tableId] : null;
+    const cols = td?.columns || [];
+    return (
+      <>
+        <Field label="Table">
+          <select
+            value={c.props.tableId || ''}
+            onChange={(e) => onChange({ tableId: e.target.value || null, labelColumnId: null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— None —</option>
+            {tables.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </Field>
+        {c.props.tableId && (
+          <Field label="Label column">
+            <select
+              value={c.props.labelColumnId || ''}
+              onChange={(e) => onChange({ labelColumnId: e.target.value || null })}
+              style={{ ...fieldInputStyle, cursor: 'pointer' }}
+            >
+              <option value="">— Primary —</option>
+              {cols.map((col) => (
+                <option key={col.id} value={col.id}>{col.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field label="Columns">
+          <Segmented
+            options={['1', '2', '3']}
+            value={String(c.props.columns || 2)}
+            onChange={(v) => onChange({ columns: Number(v) })}
+          />
+        </Field>
+        <Field label="Max items">
+          <NumberField value={c.props.limit} onChange={(v) => onChange({ limit: v })} />
+        </Field>
+        <Field label="Empty text">
+          <TextField value={c.props.emptyText} onChange={(v) => onChange({ emptyText: v })} />
+        </Field>
+      </>
+    );
+  },
   container: () => null,
 };
 
@@ -2070,7 +2175,7 @@ function PropertiesPanel({ state, setState, tables, dataByTable, dataLoading }) 
         {!playMode && selected && tab === 'general' && (
           <>
             {GENERAL_FORMS[selected.type]
-              ? GENERAL_FORMS[selected.type](selected, updateProps)
+              ? GENERAL_FORMS[selected.type](selected, updateProps, { tables, dataByTable })
               : <NoDesignOptions />}
             {['title', 'text'].includes(selected.type) && (
               <BindColumnField

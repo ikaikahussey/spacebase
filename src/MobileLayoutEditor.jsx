@@ -46,6 +46,71 @@ const SpecIcon = ({ name, ...rest }) => {
   return <Cmp {...rest} />;
 };
 
+// ─── LEAFLET LOADER + GEOCODING ─────────────────────────────────────────────
+// Leaflet is loaded from unpkg on first use to avoid a hard dep.
+let leafletPromise = null;
+function loadLeaflet() {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (window.L) return Promise.resolve(window.L);
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    const cssId = 'leaflet-css';
+    if (!document.getElementById(cssId)) {
+      const link = document.createElement('link');
+      link.id = cssId;
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+    const scriptId = 'leaflet-js';
+    if (document.getElementById(scriptId)) {
+      const check = setInterval(() => {
+        if (window.L) { clearInterval(check); resolve(window.L); }
+      }, 50);
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = scriptId;
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.onload = () => resolve(window.L);
+    script.onerror = (e) => reject(e);
+    document.head.appendChild(script);
+  });
+  return leafletPromise;
+}
+
+// Single-flight, rate-limited geocoder backed by Nominatim. In-memory cache
+// keyed by the raw address string. Callers await one coord at a time.
+const geocodeCache = new Map();
+let geocodeChain = Promise.resolve();
+function geocodeAddress(address) {
+  const key = (address || '').trim();
+  if (!key) return Promise.resolve(null);
+  if (geocodeCache.has(key)) return Promise.resolve(geocodeCache.get(key));
+  const next = geocodeChain.then(async () => {
+    if (geocodeCache.has(key)) return geocodeCache.get(key);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(key)}&format=json&limit=1`,
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      const json = await res.json();
+      const hit = Array.isArray(json) && json[0];
+      const coord = hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
+      geocodeCache.set(key, coord);
+      // Nominatim asks for max 1 req/sec.
+      await new Promise((r) => setTimeout(r, 1100));
+      return coord;
+    } catch {
+      geocodeCache.set(key, null);
+      return null;
+    }
+  });
+  geocodeChain = next.catch(() => {});
+  return next;
+}
+
 const SCREEN_ICONS = { home: HomeIcon, circle: Circle };
 const ScreenIcon = ({ name, ...rest }) => {
   const Cmp = SCREEN_ICONS[name] || Circle;
@@ -682,6 +747,22 @@ const COMPONENT_SPECS = {
     },
     renderProps: () => null,
   },
+  map: {
+    category: 'Collection',
+    label: 'Map',
+    icon: 'LayoutGrid',
+    defaultProps: () => ({
+      tableId: null,
+      addressColumnId: null,
+      latColumnId: null,
+      lngColumnId: null,
+      labelColumnId: null,
+      detailScreenId: null,
+      height: 240,
+    }),
+    renderPreview: (c, ctx) => <MapView comp={c} ctx={ctx} />,
+    renderProps: () => null,
+  },
   // Layout
   container: {
     category: 'Layout',
@@ -1211,6 +1292,121 @@ function useViewportWidth() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   return w;
+}
+
+// MapView — renders pins for a collection or a single detail row using
+// Leaflet. Addresses are geocoded via Nominatim; explicit lat/lng columns
+// override geocoding when set.
+function MapView({ comp, ctx }) {
+  const { props } = comp;
+  const height = Math.max(120, props.height || 240);
+  const containerRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+  const layerRef = React.useRef(null);
+
+  // Resolve the set of rows to plot.
+  const rows = React.useMemo(() => {
+    if (props.tableId) {
+      const td = ctx?.dataByTable?.[props.tableId];
+      return td?.rows || [];
+    }
+    return ctx?.row ? [ctx.row] : [];
+  }, [props.tableId, ctx?.dataByTable, ctx?.row]);
+
+  const pinsKey = React.useMemo(() => {
+    const ids = rows.map((r) => r.id).join(',');
+    return `${props.addressColumnId || ''}|${props.latColumnId || ''}|${props.lngColumnId || ''}|${props.labelColumnId || ''}|${props.detailScreenId || ''}|${ids}`;
+  }, [rows, props]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const L = await loadLeaflet();
+      if (cancelled || !L || !containerRef.current) return;
+      if (!mapRef.current) {
+        const map = L.map(containerRef.current, {
+          zoomControl: true,
+          attributionControl: true,
+        }).setView([0, 0], 2);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap',
+        }).addTo(map);
+        mapRef.current = map;
+        layerRef.current = L.layerGroup().addTo(map);
+      }
+      const map = mapRef.current;
+      const layer = layerRef.current;
+      layer.clearLayers();
+
+      // Resolve coordinates for each row.
+      const pins = [];
+      for (const r of rows) {
+        let lat = null, lng = null;
+        if (props.latColumnId && props.lngColumnId) {
+          lat = Number(r.cells?.[props.latColumnId]);
+          lng = Number(r.cells?.[props.lngColumnId]);
+        }
+        if ((!isFinite(lat) || !isFinite(lng)) && props.addressColumnId) {
+          const addr = r.cells?.[props.addressColumnId];
+          if (addr) {
+            const c = await geocodeAddress(String(addr));
+            if (cancelled) return;
+            if (c) { lat = c.lat; lng = c.lng; }
+          }
+        }
+        if (!isFinite(lat) || !isFinite(lng)) continue;
+        pins.push({ row: r, lat, lng });
+      }
+      if (cancelled) return;
+
+      pins.forEach(({ row, lat, lng }) => {
+        const labelColId = props.labelColumnId || ctx?.primaryColId;
+        const label = labelColId ? row.cells?.[labelColId] : '';
+        const m = L.marker([lat, lng]).addTo(layer);
+        if (label) m.bindPopup(String(label));
+        if (ctx?.onItemTap && props.detailScreenId) {
+          m.on('click', () => ctx.onItemTap(row.id, props.detailScreenId));
+        }
+      });
+
+      if (pins.length === 1) {
+        map.setView([pins[0].lat, pins[0].lng], 14);
+      } else if (pins.length > 1) {
+        const bounds = L.latLngBounds(pins.map((p) => [p.lat, p.lng]));
+        map.fitBounds(bounds, { padding: [20, 20] });
+      }
+      // Invalidate size in case container was laid out after init.
+      setTimeout(() => { try { map.invalidateSize(); } catch {} }, 50);
+    })();
+    return () => { cancelled = true; };
+  }, [pinsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => () => {
+    if (mapRef.current) { try { mapRef.current.remove(); } catch {} mapRef.current = null; }
+  }, []);
+
+  const hasSource =
+    props.tableId ||
+    (ctx?.row && (props.addressColumnId || (props.latColumnId && props.lngColumnId)));
+
+  if (!hasSource || (!props.addressColumnId && !(props.latColumnId && props.lngColumnId))) {
+    return (
+      <div style={{
+        height, background: '#1a1a1a', color: '#888', borderRadius: 6,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 12, fontStyle: 'italic',
+      }}>
+        (configure address or lat/lng column)
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height, borderRadius: 6, overflow: 'hidden', background: '#1a1a1a' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+    </div>
+  );
 }
 
 function PhoneFrame({ state, setState, dragRef, dataByTable }) {
@@ -1919,6 +2115,93 @@ const GENERAL_FORMS = {
     );
   },
   container: () => null,
+  map: (c, onChange, fctx) => {
+    const tables = fctx?.tables || [];
+    const td = c.props.tableId ? fctx?.dataByTable?.[c.props.tableId] : null;
+    const cols = td?.columns || [];
+    const screens = fctx?.state?.screens || [];
+    return (
+      <>
+        <Field label="Table (collection)">
+          <select
+            value={c.props.tableId || ''}
+            onChange={(e) => onChange({ tableId: e.target.value || null, addressColumnId: null, latColumnId: null, lngColumnId: null, labelColumnId: null, detailScreenId: null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— Use detail row —</option>
+            {tables.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Address column">
+          <select
+            value={c.props.addressColumnId || ''}
+            onChange={(e) => onChange({ addressColumnId: e.target.value || null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— None —</option>
+            {cols.map((col) => (
+              <option key={col.id} value={col.id}>{col.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Latitude column (optional)">
+          <select
+            value={c.props.latColumnId || ''}
+            onChange={(e) => onChange({ latColumnId: e.target.value || null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— None —</option>
+            {cols.map((col) => (
+              <option key={col.id} value={col.id}>{col.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Longitude column (optional)">
+          <select
+            value={c.props.lngColumnId || ''}
+            onChange={(e) => onChange({ lngColumnId: e.target.value || null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— None —</option>
+            {cols.map((col) => (
+              <option key={col.id} value={col.id}>{col.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Pin label column">
+          <select
+            value={c.props.labelColumnId || ''}
+            onChange={(e) => onChange({ labelColumnId: e.target.value || null })}
+            style={{ ...fieldInputStyle, cursor: 'pointer' }}
+          >
+            <option value="">— Primary —</option>
+            {cols.map((col) => (
+              <option key={col.id} value={col.id}>{col.name}</option>
+            ))}
+          </select>
+        </Field>
+        {c.props.tableId && (
+          <Field label="Tap pin opens screen">
+            <select
+              value={c.props.detailScreenId || ''}
+              onChange={(e) => onChange({ detailScreenId: e.target.value || null })}
+              style={{ ...fieldInputStyle, cursor: 'pointer' }}
+            >
+              <option value="">— None —</option>
+              {screens.filter((s) => s.tableId === c.props.tableId).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field label="Height">
+          <NumberField value={c.props.height} onChange={(v) => onChange({ height: v })} />
+        </Field>
+      </>
+    );
+  },
 };
 
 const DESIGN_FORMS = {

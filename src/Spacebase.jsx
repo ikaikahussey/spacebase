@@ -18,7 +18,7 @@ import React, {
   useMemo,
   useReducer,
 } from 'react';
-import MobileLayoutEditor from './MobileLayoutEditor';
+import MobileLayoutEditor, { PublishedApp } from './MobileLayoutEditor';
 import { createClient } from '@supabase/supabase-js';
 import { debounce } from 'lodash';
 import {
@@ -551,6 +551,7 @@ export default function Spacebase() {
   const [bases, setBases] = useState([]);
   const [activeBaseId, setActiveBaseId] = useState(null);
   const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
+  const [publishedAppOpen, setPublishedAppOpen] = useState(false);
   const [loadingBases, setLoadingBases] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -651,6 +652,15 @@ export default function Spacebase() {
   useEffect(() => {
     if (hashInitRef.current || loadingBases) return;
     hashInitRef.current = true;
+    const appMatch = window.location.hash.match(/^#\/b\/([^/?#]+)\/app/);
+    if (appMatch) {
+      const id = appMatch[1];
+      if (bases.some((b) => b.id === id)) {
+        setActiveBaseId(id);
+        setPublishedAppOpen(true);
+      }
+      return;
+    }
     const layoutMatch = window.location.hash.match(/^#\/b\/([^/?#]+)\/layout/);
     if (layoutMatch) {
       const id = layoutMatch[1];
@@ -670,13 +680,13 @@ export default function Spacebase() {
   // Keep the URL in sync with activeBaseId. Use pushState so back/forward work.
   useEffect(() => {
     if (loadingBases) return;
-    if (layoutEditorOpen) return;
+    if (layoutEditorOpen || publishedAppOpen) return;
     const desired = activeBaseId ? `#/b/${activeBaseId}` : '';
     if (window.location.hash === desired) return;
     const url =
       window.location.pathname + window.location.search + desired;
     window.history.pushState({ baseId: activeBaseId }, '', url);
-  }, [activeBaseId, loadingBases, layoutEditorOpen]);
+  }, [activeBaseId, loadingBases, layoutEditorOpen, publishedAppOpen]);
 
   // Sync URL when layout editor opens.
   useEffect(() => {
@@ -687,9 +697,26 @@ export default function Spacebase() {
     window.history.pushState({ layout: true, baseId: activeBaseId }, '', url);
   }, [layoutEditorOpen, activeBaseId]);
 
+  // Sync URL when published app opens.
+  useEffect(() => {
+    if (!publishedAppOpen) return;
+    const desired = activeBaseId ? `#/b/${activeBaseId}/app` : '';
+    if (window.location.hash === desired) return;
+    const url = window.location.pathname + window.location.search + desired;
+    window.history.pushState({ app: true, baseId: activeBaseId }, '', url);
+  }, [publishedAppOpen, activeBaseId]);
+
   // React to browser back/forward.
   useEffect(() => {
     const onPop = () => {
+      const appMatch = window.location.hash.match(/^#\/b\/([^/?#]+)\/app/);
+      if (appMatch) {
+        setActiveBaseId(appMatch[1]);
+        setPublishedAppOpen(true);
+        setLayoutEditorOpen(false);
+        return;
+      }
+      setPublishedAppOpen(false);
       const layoutMatch = window.location.hash.match(/^#\/b\/([^/?#]+)\/layout/);
       if (layoutMatch) {
         setActiveBaseId(layoutMatch[1]);
@@ -1109,7 +1136,7 @@ export default function Spacebase() {
   }, [toastError]);
 
   useEffect(() => {
-    if (!layoutEditorOpen || !activeBaseId) return;
+    if ((!layoutEditorOpen && !publishedAppOpen) || !activeBaseId) return;
     let cancelled = false;
     setLayoutDataLoading(true);
     fetchAllTableData(tables).then((data) => {
@@ -1121,7 +1148,7 @@ export default function Spacebase() {
     return () => {
       cancelled = true;
     };
-  }, [layoutEditorOpen, activeBaseId, tables, fetchAllTableData]);
+  }, [layoutEditorOpen, publishedAppOpen, activeBaseId, tables, fetchAllTableData]);
 
   const saveBaseLayout = useCallback(async (id, layout) => {
     setBases((b) => b.map((x) => (x.id === id ? { ...x, layout } : x)));
@@ -1131,6 +1158,16 @@ export default function Spacebase() {
       toastError(e?.message || 'Failed to save layout');
     }
   }, [toastError]);
+
+  const publishBaseLayout = useCallback(async (id, layout) => {
+    setBases((b) => b.map((x) => (x.id === id ? { ...x, published_layout: layout } : x)));
+    try {
+      await supabase.from('spacebase_bases').update({ published_layout: layout }).eq('id', id);
+      success('Published');
+    } catch (e) {
+      toastError(e?.message || 'Failed to publish');
+    }
+  }, [toastError, success]);
 
   const deleteBase = async (id) => {
     const prev = bases.find((b) => b.id === id);
@@ -1691,6 +1728,23 @@ export default function Spacebase() {
     );
   }
 
+  if (publishedAppOpen && activeBaseId) {
+    const base = bases.find((b) => b.id === activeBaseId);
+    return (
+      <PublishedApp
+        baseName={base?.name}
+        layout={base?.published_layout || null}
+        dataByTable={layoutData}
+        onClose={() => {
+          setPublishedAppOpen(false);
+          const url = window.location.pathname + window.location.search;
+          window.history.pushState({}, '', url);
+          setActiveBaseId(null);
+        }}
+      />
+    );
+  }
+
   if (layoutEditorOpen && activeBaseId) {
     const base = bases.find((b) => b.id === activeBaseId);
     return (
@@ -1701,6 +1755,11 @@ export default function Spacebase() {
         dataByTable={layoutData}
         dataLoading={layoutDataLoading}
         onSave={(layout) => saveBaseLayout(activeBaseId, layout)}
+        onPublish={async (layout) => {
+          await publishBaseLayout(activeBaseId, layout);
+          setLayoutEditorOpen(false);
+          setPublishedAppOpen(true);
+        }}
         onClose={() => {
           setLayoutEditorOpen(false);
           const url = window.location.pathname + window.location.search + `#/b/${activeBaseId}`;
@@ -1715,6 +1774,10 @@ export default function Spacebase() {
       <HomeScreen
         bases={bases}
         onOpen={(id) => setActiveBaseId(id)}
+        onOpenApp={(id) => {
+          setActiveBaseId(id);
+          setPublishedAppOpen(true);
+        }}
         onCreate={createBase}
         onRename={renameBase}
         onDelete={deleteBase}
@@ -2405,10 +2468,11 @@ function FullScreen({ children }) {
   );
 }
 
-function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
+function HomeScreen({ bases, onOpen, onOpenApp, onCreate, onRename, onDelete, toasts }) {
   useGoogleFonts();
   const [renaming, setRenaming] = useState(null);
   const [renameVal, setRenameVal] = useState('');
+  const publishedBases = bases.filter((b) => b.published_layout);
   return (
     <div
       style={{
@@ -2453,6 +2517,49 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
           <Plus size={14} style={{ verticalAlign: -2 }} /> NEW SPACEBASE
         </LButton>
       </div>
+
+      {publishedBases.length > 0 && (
+        <div style={{ padding: '16px 32px 0' }}>
+          <div
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: 12,
+              letterSpacing: 2,
+              textTransform: 'uppercase',
+              color: C.text,
+              opacity: 0.6,
+              marginBottom: 10,
+            }}
+          >
+            PUBLISHED APPS
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {publishedBases.map((b, i) => {
+              const color = pillColor(i);
+              return (
+                <div
+                  key={b.id}
+                  onClick={() => onOpenApp(b.id)}
+                  title={`Open ${b.name}`}
+                  style={{
+                    background: color,
+                    color: contrastText(color),
+                    padding: '10px 20px',
+                    borderRadius: 18,
+                    fontFamily: FONT_UI,
+                    fontSize: 12,
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ▶ {b.name}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div
         style={{

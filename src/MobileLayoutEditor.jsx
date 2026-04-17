@@ -2408,7 +2408,72 @@ function pickPersisted(s) {
   return out;
 }
 
-export default function MobileLayoutEditor({ onClose, initialState, onSave, baseName, tables = [], dataByTable = {}, dataLoading = false }) {
+// Published runtime renderer — shows a saved layout without editor chrome.
+export function PublishedApp({ layout, dataByTable = {}, baseName, onClose }) {
+  useGoogleFonts();
+  const screens = layout?.screens || [];
+  const [activeId, setActiveId] = useState(
+    () => layout?.activeScreenId || screens[0]?.id || null
+  );
+  useEffect(() => {
+    if (!activeId && screens[0]) setActiveId(screens[0].id);
+  }, [activeId, screens]);
+
+  if (!screens.length) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: C.black, color: C.text, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT_UI, letterSpacing: 2, textTransform: 'uppercase', fontSize: 14 }}>
+        No published layout
+      </div>
+    );
+  }
+
+  const screen = screens.find((s) => s.id === activeId) || screens[0];
+  const td = screen.tableId ? dataByTable?.[screen.tableId] : null;
+  const row = td && screen.previewRowId ? td.rows.find((r) => r.id === screen.previewRowId) : null;
+  const ctx = { row, columns: td?.columns || [], primaryColId: td?.primaryColId, dataByTable };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: C.black, color: C.text, display: 'flex', flexDirection: 'column', fontFamily: FONT_DATA }}>
+      {onClose && (
+        <div style={{ flex: '0 0 44px', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12, borderBottom: `1px solid ${C.butterscotchDim}` }}>
+          <button onClick={onClose} title="Exit" style={{ background: C.salmon, color: C.onAction, border: 'none', width: 28, height: 28, borderRadius: 14, cursor: 'pointer', fontSize: 14 }}>←</button>
+          <div style={{ fontFamily: FONT_UI, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: C.butterscotch }}>
+            {baseName || 'APP'}
+          </div>
+        </div>
+      )}
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center' }}>
+        <div style={{ width: '100%', maxWidth: 500, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {screen.components.map((c) => {
+            const spec = COMPONENT_SPECS[c.type];
+            const visibility = c.options?.visibility || 'always';
+            if (visibility === 'never') return null;
+            return <div key={c.id}>{spec ? spec.renderPreview(c, ctx) : null}</div>;
+          })}
+        </div>
+      </div>
+      {screens.length > 1 && (
+        <div style={{ flex: '0 0 56px', borderTop: `1px solid ${C.butterscotchDim}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#0a0a0a' }}>
+          {screens.map((s) => {
+            const active = s.id === activeId;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setActiveId(s.id)}
+                title={s.name}
+                style={{ width: 40, height: 40, borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', background: active ? C.butterscotch : 'transparent', color: active ? C.onAction : '#888', border: 'none', cursor: 'pointer' }}
+              >
+                <ScreenIcon name={s.icon} size={18} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function MobileLayoutEditor({ onClose, onPublish, initialState, onSave, baseName, tables = [], dataByTable = {}, dataLoading = false }) {
   useGoogleFonts();
   usePlayModeStyles();
   const [state, setState] = useState(() => ({
@@ -2531,7 +2596,13 @@ export default function MobileLayoutEditor({ onClose, initialState, onSave, base
             PLAY
           </LButton>
         </div>
-        <LButton disabled color={C.butterscotch} side="round">
+        <LButton
+          onClick={() => onPublish && onPublish(pickPersisted(state))}
+          color={C.butterscotch}
+          side="round"
+          disabled={!onPublish}
+          title="Publish current layout and open runtime app"
+        >
           PUBLISH
         </LButton>
       </div>

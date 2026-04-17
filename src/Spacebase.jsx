@@ -18,6 +18,7 @@ import React, {
   useMemo,
   useReducer,
 } from 'react';
+import MobileLayoutEditor from './MobileLayoutEditor';
 import { createClient } from '@supabase/supabase-js';
 import { debounce } from 'lodash';
 import {
@@ -549,6 +550,7 @@ export default function Spacebase() {
   // Global state
   const [bases, setBases] = useState([]);
   const [activeBaseId, setActiveBaseId] = useState(null);
+  const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
   const [loadingBases, setLoadingBases] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -645,6 +647,10 @@ export default function Spacebase() {
   useEffect(() => {
     if (hashInitRef.current || loadingBases) return;
     hashInitRef.current = true;
+    if (window.location.hash === '#/layout') {
+      setLayoutEditorOpen(true);
+      return;
+    }
     const m = window.location.hash.match(/^#\/b\/([^/?#]+)/);
     const target = m?.[1];
     if (target && bases.some((b) => b.id === target)) {
@@ -655,16 +661,30 @@ export default function Spacebase() {
   // Keep the URL in sync with activeBaseId. Use pushState so back/forward work.
   useEffect(() => {
     if (loadingBases) return;
+    if (layoutEditorOpen) return;
     const desired = activeBaseId ? `#/b/${activeBaseId}` : '';
     if (window.location.hash === desired) return;
     const url =
       window.location.pathname + window.location.search + desired;
     window.history.pushState({ baseId: activeBaseId }, '', url);
-  }, [activeBaseId, loadingBases]);
+  }, [activeBaseId, loadingBases, layoutEditorOpen]);
+
+  // Sync URL when layout editor opens.
+  useEffect(() => {
+    if (!layoutEditorOpen) return;
+    if (window.location.hash === '#/layout') return;
+    const url = window.location.pathname + window.location.search + '#/layout';
+    window.history.pushState({ layout: true }, '', url);
+  }, [layoutEditorOpen]);
 
   // React to browser back/forward.
   useEffect(() => {
     const onPop = () => {
+      if (window.location.hash === '#/layout') {
+        setLayoutEditorOpen(true);
+        return;
+      }
+      setLayoutEditorOpen(false);
       const m = window.location.hash.match(/^#\/b\/([^/?#]+)/);
       const target = m?.[1] || null;
       setActiveBaseId((cur) => {
@@ -1573,6 +1593,8 @@ export default function Spacebase() {
     );
   }
 
+  if (layoutEditorOpen) return <MobileLayoutEditor onClose={() => { setLayoutEditorOpen(false); window.history.pushState({}, '', window.location.pathname + window.location.search); }} />;
+
   if (!activeBaseId) {
     return (
       <HomeScreen
@@ -1581,6 +1603,7 @@ export default function Spacebase() {
         onCreate={createBase}
         onRename={renameBase}
         onDelete={deleteBase}
+        onOpenLayoutEditor={() => setLayoutEditorOpen(true)}
         toasts={toasts}
       />
     );
@@ -2260,7 +2283,7 @@ function FullScreen({ children }) {
   );
 }
 
-function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
+function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, onOpenLayoutEditor, toasts }) {
   useGoogleFonts();
   const [renaming, setRenaming] = useState(null);
   const [renameVal, setRenameVal] = useState('');
@@ -2306,6 +2329,9 @@ function HomeScreen({ bases, onOpen, onCreate, onRename, onDelete, toasts }) {
         <div style={{ flex: 1 }} />
         <LButton onClick={onCreate} color={C.sky} side="round">
           <Plus size={14} style={{ verticalAlign: -2 }} /> NEW SPACEBASE
+        </LButton>
+        <LButton onClick={onOpenLayoutEditor} color={C.periwinkle} side="round">
+          LAYOUT EDITOR
         </LButton>
       </div>
 

@@ -455,6 +455,25 @@ function pillColor(idx) {
   return LCARS_ROTATION[idx % LCARS_ROTATION.length];
 }
 
+// Multi-select stores its value as a JSON-encoded string array. Older / raw
+// text values are split on commas, trimmed, and emptied entries dropped.
+function parseMulti(v) {
+  if (v == null || v === '') return [];
+  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+  const s = String(v);
+  if (s.startsWith('[')) {
+    try {
+      const a = JSON.parse(s);
+      if (Array.isArray(a)) return a.map((x) => String(x).trim()).filter(Boolean);
+    } catch {}
+  }
+  return s.split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+function stringifyMulti(arr) {
+  return JSON.stringify(arr);
+}
+
 // RFC 4180-ish CSV parser. Handles quoted fields, escaped quotes (""),
 // CR/LF/CRLF line endings, and a leading BOM. Returns rows of string arrays.
 function parseCSV(input) {
@@ -631,6 +650,9 @@ export default function Spacebase() {
   const [colMenu, setColMenu] = useState(null); // columnId
   const [addColOpen, setAddColOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hiddenCols, setHiddenCols] = useState(() => new Set()); // Set<columnId>
+  const [colFilters, setColFilters] = useState({}); // {columnId: filterText}
+  const [hiddenPanelOpen, setHiddenPanelOpen] = useState(false);
 
   // Layout editor data cache: { [tableId]: { columns, rows, primaryColId } }
   const [layoutData, setLayoutData] = useState({});
@@ -1029,14 +1051,34 @@ export default function Spacebase() {
   );
 
   // ─── SORT + FILTER ───────────────────────────────────────────────────────
+  const cellSearchString = (col, v) => {
+    if (v == null) return '';
+    if (col?.type === 'multi_select') return parseMulti(v).join(' ');
+    return String(v);
+  };
   const visibleRows = useMemo(() => {
     let r = rows;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
       r = r.filter((row) =>
-        Object.values(row.cells).some(
-          (v) => v != null && String(v).toLowerCase().includes(q)
-        )
+        columns.some((c) => {
+          const v = row.cells[c.id];
+          return v != null && cellSearchString(c, v).toLowerCase().includes(q);
+        })
+      );
+    }
+    // Per-column substring filters
+    const activeFilters = Object.entries(colFilters).filter(
+      ([, q]) => q && q.trim()
+    );
+    if (activeFilters.length) {
+      r = r.filter((row) =>
+        activeFilters.every(([colId, q]) => {
+          const c = columns.find((x) => x.id === colId);
+          return cellSearchString(c, row.cells[colId])
+            .toLowerCase()
+            .includes(q.toLowerCase());
+        })
       );
     }
     if (activeTable?.sort_column_id) {
@@ -1056,7 +1098,14 @@ export default function Spacebase() {
       }
     }
     return r;
-  }, [rows, debouncedSearch, activeTable, columns]);
+  }, [rows, debouncedSearch, activeTable, columns, colFilters]);
+
+  // Columns shown in the table grid (hidden ones are skipped from rendering
+  // but kept in `columns` so their data, filters, and sort state survive).
+  const visibleColumns = useMemo(
+    () => columns.filter((c) => !hiddenCols.has(c.id)),
+    [columns, hiddenCols]
+  );
 
   // ─── VIRTUALIZATION ──────────────────────────────────────────────────────
   // Re-run when loadingTable flips to false — the scroll container only
@@ -1366,6 +1415,27 @@ export default function Spacebase() {
         setColumns((cs) => cs.map((c) => (c.id === id ? prev : c)));
         await supabase.from('spacebase_columns').update(prev).eq('id', id);
       });
+      // When converting to multi-select, parse comma-separated text values
+      // ("A, B, C plus" -> ["A", "B", "C plus"]) and persist as JSON arrays.
+      if (
+        patch.type === 'multi_select' &&
+        prev &&
+        prev.type !== 'multi_select'
+      ) {
+        const updates = [];
+        setRows((rs) =>
+          rs.map((r) => {
+            const cur = r.cells[id];
+            if (cur == null || cur === '') return r;
+            const arr = parseMulti(cur);
+            const next = stringifyMulti(arr);
+            if (next === cur) return r;
+            updates.push({ rowId: r.id, value: next });
+            return { ...r, cells: { ...r.cells, [id]: next } };
+          })
+        );
+        updates.forEach((u) => queueCellWrite(u.rowId, id, u.value));
+      }
     } catch {
       setColumns((cs) => cs.map((c) => (c.id === id ? prev : c)));
       toastError('Failed to update column');
@@ -1706,15 +1776,15 @@ export default function Spacebase() {
   const advanceFocus = (rowIdx, colIdx, dir = 1) => {
     let r = rowIdx;
     let c = colIdx + dir;
-    if (c >= columns.length) {
+    if (c >= visibleColumns.length) {
       c = 0;
       r++;
     } else if (c < 0) {
-      c = columns.length - 1;
+      c = visibleColumns.length - 1;
       r--;
     }
     if (r < 0 || r >= visibleRows.length) return;
-    setFocus({ rowId: visibleRows[r].id, colId: columns[c].id });
+    setFocus({ rowId: visibleRows[r].id, colId: visibleColumns[c].id });
     setEditing(null);
   };
 
@@ -1722,7 +1792,7 @@ export default function Spacebase() {
     const onKey = (e) => {
       if (!focus || editing) return;
       const rIdx = visibleRows.findIndex((r) => r.id === focus.rowId);
-      const cIdx = columns.findIndex((c) => c.id === focus.colId);
+      const cIdx = visibleColumns.findIndex((c) => c.id === focus.colId);
       if (rIdx === -1 || cIdx === -1) return;
       if (e.key === 'ArrowRight') {
         e.preventDefault();
@@ -1850,7 +1920,7 @@ export default function Spacebase() {
   const ADD_COL_BTN_W = 56;
   const totalW =
     ROW_NUM_W +
-    columns.reduce((s, c) => s + (c.width || DEFAULT_COL_W), 0) +
+    visibleColumns.reduce((s, c) => s + (c.width || DEFAULT_COL_W), 0) +
     ADD_COL_BTN_W;
 
   return (
@@ -1867,6 +1937,7 @@ export default function Spacebase() {
       onClick={() => {
         setColMenu(null);
         setAddColOpen(false);
+        setHiddenPanelOpen(false);
       }}
     >
       {/* LCARS sidebar */}
@@ -2028,6 +2099,77 @@ export default function Spacebase() {
               <Plus size={14} />
             </div>
           </div>
+
+          {/* Hidden columns indicator */}
+          {hiddenCols.size > 0 && (
+            <div
+              style={{ position: 'relative' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                onClick={() => setHiddenPanelOpen((v) => !v)}
+                title="Hidden columns"
+                style={{
+                  background: C.lavender,
+                  color: C.onAction,
+                  padding: '6px 12px',
+                  borderRadius: 4,
+                  fontFamily: FONT_UI,
+                  fontSize: 11,
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  marginRight: 6,
+                }}
+              >
+                {hiddenCols.size} HIDDEN
+              </div>
+              {hiddenPanelOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 2,
+                    background: C.bg,
+                    border: `2px solid ${C.lavender}`,
+                    zIndex: 100,
+                    minWidth: 200,
+                    padding: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  {columns
+                    .filter((c) => hiddenCols.has(c.id))
+                    .map((c) => (
+                      <div
+                        key={c.id}
+                        onClick={() =>
+                          setHiddenCols((s) => {
+                            const n = new Set(s);
+                            n.delete(c.id);
+                            return n;
+                          })
+                        }
+                        style={{
+                          background: C.butterscotchDim,
+                          color: C.text,
+                          padding: '6px 10px',
+                          fontFamily: FONT_UI,
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          textTransform: 'uppercase',
+                          borderRadius: 2,
+                        }}
+                      >
+                        SHOW {c.name}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Search */}
           <div
@@ -2308,12 +2450,16 @@ export default function Spacebase() {
                 >
                   #
                 </div>
-                {columns.map((col) => (
+                {visibleColumns.map((col) => (
                   <ColumnHeader
                     key={col.id}
                     col={col}
                     activeSort={activeTable?.sort_column_id === col.id ? activeTable.sort_direction : null}
                     menuOpen={colMenu === col.id}
+                    filter={colFilters[col.id] || ''}
+                    onChangeFilter={(v) =>
+                      setColFilters((f) => ({ ...f, [col.id]: v }))
+                    }
                     onToggleMenu={() =>
                       setColMenu(colMenu === col.id ? null : col.id)
                     }
@@ -2321,6 +2467,14 @@ export default function Spacebase() {
                     onChangeType={(t) => updateColumn(col.id, { type: t })}
                     onSortAsc={() => setSort(col.id, 'asc')}
                     onSortDesc={() => setSort(col.id, 'desc')}
+                    onHide={() => {
+                      setHiddenCols((s) => {
+                        const n = new Set(s);
+                        n.add(col.id);
+                        return n;
+                      });
+                      setColMenu(null);
+                    }}
                     onDelete={() => deleteColumn(col.id)}
                     onResize={(w) => updateColumn(col.id, { width: w })}
                   />
@@ -2392,7 +2546,7 @@ export default function Spacebase() {
                         key={row.id}
                         row={row}
                         idx={idx}
-                        columns={columns}
+                        columns={visibleColumns}
                         selected={isSelected}
                         onToggleSelect={() => {
                           setSelected((s) => {
@@ -2419,7 +2573,7 @@ export default function Spacebase() {
                           const rIdx = visibleRows.findIndex(
                             (r) => r.id === row.id
                           );
-                          const cIdx = columns.findIndex((c) => c.id === colId);
+                          const cIdx = visibleColumns.findIndex((c) => c.id === colId);
                           advanceFocus(rIdx, cIdx, dir);
                         }}
                         linkedData={linkedData}
@@ -2759,11 +2913,14 @@ function ColumnHeader({
   col,
   activeSort,
   menuOpen,
+  filter,
+  onChangeFilter,
   onToggleMenu,
   onRename,
   onChangeType,
   onSortAsc,
   onSortDesc,
+  onHide,
   onDelete,
   onResize,
 }) {
@@ -2902,7 +3059,7 @@ function ColumnHeader({
           >
             TYPE
           </div>
-          {['text', 'number', 'single_select', 'checkbox', 'date'].map((t) => (
+          {['text', 'number', 'single_select', 'multi_select', 'checkbox', 'date'].map((t) => (
             <MenuItem
               key={t}
               onClick={() => {
@@ -2914,6 +3071,39 @@ function ColumnHeader({
               {t.replace('_', ' ').toUpperCase()}
             </MenuItem>
           ))}
+          <div
+            style={{
+              color: C.text,
+              fontFamily: FONT_UI,
+              fontSize: 9,
+              padding: '4px 8px 2px',
+              opacity: 0.5,
+            }}
+          >
+            FILTER
+          </div>
+          <input
+            value={filter || ''}
+            onChange={(e) => onChangeFilter(e.target.value)}
+            placeholder="CONTAINS..."
+            style={{
+              background: C.cellBg,
+              border: `1px solid ${C.grid}`,
+              color: C.text,
+              padding: '6px 8px',
+              fontFamily: FONT_DATA,
+              fontSize: 12,
+              outline: 'none',
+              margin: '0 4px',
+            }}
+          />
+          <MenuItem
+            onClick={() => {
+              onHide();
+            }}
+          >
+            HIDE COLUMN
+          </MenuItem>
           <MenuItem
             onClick={() => {
               if (confirm(`Delete column "${col.name}"?`)) {
@@ -3188,6 +3378,41 @@ function Cell({
   // Display mode
   let display = value ?? '';
   if (col.type === 'date') display = fmtDate(value);
+  if (col.type === 'multi_select') {
+    const items = parseMulti(value);
+    return (
+      <div
+        style={{ ...baseStyle, gap: 4, overflow: 'hidden' }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus();
+        }}
+        onDoubleClick={onBeginEdit}
+      >
+        {items.length === 0 ? (
+          <span style={{ opacity: 0.4 }}>—</span>
+        ) : (
+          items.map((it, i) => (
+            <div
+              key={i}
+              style={{
+                background: pillColor(i),
+                color: C.black,
+                padding: '3px 8px',
+                borderRadius: 10,
+                fontFamily: FONT_UI,
+                fontSize: 10,
+                textTransform: 'uppercase',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {it}
+            </div>
+          ))
+        )}
+      </div>
+    );
+  }
   if (col.type === 'single_select' && value) {
     return (
       <div
@@ -3238,7 +3463,9 @@ function Cell({
 }
 
 function CellEditor({ col, value, onCommit, onCancel, onAdvance, linkedData }) {
-  const [v, setV] = useState(value ?? '');
+  const [v, setV] = useState(() =>
+    col.type === 'multi_select' ? parseMulti(value).join(', ') : value ?? ''
+  );
   const ref = useRef(null);
   useEffect(() => {
     ref.current?.focus();
@@ -3300,6 +3527,38 @@ function CellEditor({ col, value, onCommit, onCancel, onAdvance, linkedData }) {
         ))}
         {!link && <option value="">LOADING...</option>}
       </select>
+    );
+  }
+
+  if (col.type === 'multi_select') {
+    // Free-form comma-separated input. Splits on commas at commit time so a
+    // user can type "A, B, C plus" and get three pills.
+    const commitMulti = (advance = 0) => {
+      const arr = parseMulti(v);
+      onCommit(arr.length ? stringifyMulti(arr) : '');
+      if (advance) onAdvance(advance);
+    };
+    return (
+      <input
+        ref={ref}
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commitMulti(0);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onCancel();
+          } else if (e.key === 'Tab') {
+            e.preventDefault();
+            commitMulti(e.shiftKey ? -1 : 1);
+          }
+        }}
+        onBlur={() => commitMulti(0)}
+        placeholder="A, B, C..."
+        style={inputStyle}
+      />
     );
   }
 
@@ -3423,6 +3682,7 @@ function AddColumnPopover({ onAdd, onClose, tables = [], currentTableId }) {
         <option value="text">TEXT</option>
         <option value="number">NUMBER</option>
         <option value="single_select">SINGLE SELECT</option>
+        <option value="multi_select">MULTI SELECT</option>
         <option value="checkbox">CHECKBOX</option>
         <option value="date">DATE</option>
         <option value="relation">RELATION</option>
